@@ -133,14 +133,20 @@ function useAuth() {
   };
 
   const loginWithPass = async (email, password) => {
-    const res = await sb.signIn(email, password);
-    if (res.error) return { error: res.error.message || "Giriş başarısız." };
-    const name = res.user?.user_metadata?.name || email.split("@")[0];
-    const u = { id: res.user.id, name, email };
-    localStorage.setItem("sb_token", res.access_token);
-    localStorage.setItem("sb_user", JSON.stringify(u));
-    setUser(u);
-    return { success: true };
+    try {
+      const res = await sb.signIn(email, password);
+      if (res.error || !res.access_token) {
+        return { error: "E-posta adresi veya şifre hatalı." };
+      }
+      const name = res.user?.user_metadata?.name || email.split("@")[0];
+      const u = { id: res.user.id, name, email };
+      localStorage.setItem("sb_token", res.access_token);
+      localStorage.setItem("sb_user", JSON.stringify(u));
+      setUser(u);
+      return { success: true, user: u };
+    } catch(e) {
+      return { error: "Bağlantı hatası. Lütfen tekrar deneyin." };
+    }
   };
 
   const logout = async () => {
@@ -659,24 +665,33 @@ function AuthModal({ mode: initMode, onClose, onSuccess, onRegister, onLogin, fr
   const [err,   setErr]   = useState("");
   const [ok,    setOk]    = useState(false);
 
+  const [loading, setLoading] = useState(false);
+
   const submit = async () => {
+    if (loading) return;
     setErr("");
-    if (mode==="register") {
-      if (!name.trim())        return setErr("Ad soyad zorunlu.");
-      if (!email.includes("@"))return setErr("Geçerli bir e-posta girin.");
-      if (pass.length < 6)     return setErr("Şifre en az 6 karakter olmalı.");
-      const res = await onRegister(name.trim(), email.trim(), pass);
-      if (res && res.error) return setErr(res.error);
-      setOk(true);
-      setTimeout(() => { onSuccess(res && res.user ? res.user : {}); }, 2000);
-    } else {
-      if (!email || !pass) return setErr("Tüm alanları doldurun.");
-      const res = await onLogin(email.trim(), pass);
-      if (!res || res.error || (!res.success && !res.user)) {
-        return setErr("E-posta adresi veya şifre hatalı. Lütfen tekrar deneyin.");
+    setOk(false);
+    setLoading(true);
+    try {
+      if (mode==="register") {
+        if (!name.trim())        { setLoading(false); return setErr("Ad soyad zorunlu."); }
+        if (!email.includes("@")){ setLoading(false); return setErr("Geçerli bir e-posta girin."); }
+        if (pass.length < 6)     { setLoading(false); return setErr("Şifre en az 6 karakter olmalı."); }
+        const res = await onRegister(name.trim(), email.trim(), pass);
+        if (!res || res.error) { setLoading(false); return setErr(res?.error || "Kayıt başarısız. Tekrar deneyin."); }
+        setOk(true);
+        setTimeout(() => { onSuccess(res.user || {}); }, 2000);
+      } else {
+        if (!email || !pass) { setLoading(false); return setErr("Tüm alanları doldurun."); }
+        const res = await onLogin(email.trim(), pass);
+        if (!res || res.error) { setLoading(false); return setErr("E-posta adresi veya şifre hatalı."); }
+        if (!res.success && !res.user) { setLoading(false); return setErr("E-posta adresi veya şifre hatalı."); }
+        setOk(true);
+        setTimeout(() => { onSuccess(res.user || {}); }, 2000);
       }
-      setOk(true);
-      setTimeout(() => { onSuccess(res.user || {}); }, 2000);
+    } catch(e) {
+      setLoading(false);
+      setErr("Bir hata oluştu. Lütfen tekrar deneyin.");
     }
   };
 
@@ -746,9 +761,9 @@ function AuthModal({ mode: initMode, onClose, onSuccess, onRegister, onLogin, fr
                 onKeyDown={e=>e.key==="Enter"&&submit()} />
             </div>
 
-            <button onClick={submit}
-              style={{width:"100%",padding:"13px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#00C9A7,#0080FF)",color:"#fff",fontWeight:700,fontSize:15,cursor:"pointer",marginBottom:16}}>
-              {mode==="login"?"Giriş Yap":"Kayıt Ol →"}
+            <button onClick={submit} disabled={loading}
+              style={{width:"100%",padding:"13px",borderRadius:10,border:"none",background:loading?"rgba(0,201,167,0.4)":"linear-gradient(135deg,#00C9A7,#0080FF)",color:"#fff",fontWeight:700,fontSize:15,cursor:loading?"default":"pointer",marginBottom:16}}>
+              {loading ? "Lütfen bekleyin..." : mode==="login" ? "Giriş Yap" : "Kayıt Ol →"}
             </button>
 
             <div style={{textAlign:"center",fontSize:13,color:"rgba(255,255,255,0.38)"}}>
