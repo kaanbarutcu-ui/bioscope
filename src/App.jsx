@@ -659,22 +659,23 @@ function AuthModal({ mode: initMode, onClose, onSuccess, onRegister, onLogin, fr
   const [err,   setErr]   = useState("");
   const [ok,    setOk]    = useState(false);
 
-  const submit = () => {
+  const submit = async () => {
     setErr("");
     if (mode==="register") {
       if (!name.trim())        return setErr("Ad soyad zorunlu.");
       if (!email.includes("@"))return setErr("Geçerli bir e-posta girin.");
       if (pass.length < 6)     return setErr("Şifre en az 6 karakter olmalı.");
-      const res = onRegister(name.trim(), email.trim(), pass);
-      if (res.error) return setErr(res.error);
+      const res = await onRegister(name.trim(), email.trim(), pass);
+      if (res && res.error) return setErr(res.error);
       setOk(true);
-      setTimeout(() => { onSuccess(res.user); }, 2000);
+      setTimeout(() => { onSuccess(res && res.user ? res.user : {}); }, 2000);
     } else {
       if (!email || !pass) return setErr("Tüm alanları doldurun.");
-      const res = onLogin(email.trim(), pass);
-      if (res.error) return setErr(res.error);
+      const res = await onLogin(email.trim(), pass);
+      if (res && res.error) return setErr(res.error || "E-posta veya şifre hatalı.");
+      if (!res || (!res.success && !res.user)) return setErr("E-posta veya şifre hatalı.");
       setOk(true);
-      setTimeout(() => { onSuccess(res.user); }, 2000);
+      setTimeout(() => { onSuccess(res.user || {}); }, 2000);
     }
   };
 
