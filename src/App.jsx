@@ -672,8 +672,9 @@ function AuthModal({ mode: initMode, onClose, onSuccess, onRegister, onLogin, fr
     } else {
       if (!email || !pass) return setErr("Tüm alanları doldurun.");
       const res = await onLogin(email.trim(), pass);
-      if (res && res.error) return setErr(res.error || "E-posta veya şifre hatalı.");
-      if (!res || (!res.success && !res.user)) return setErr("E-posta veya şifre hatalı.");
+      if (!res || res.error || (!res.success && !res.user)) {
+        return setErr("E-posta adresi veya şifre hatalı. Lütfen tekrar deneyin.");
+      }
       setOk(true);
       setTimeout(() => { onSuccess(res.user || {}); }, 2000);
     }
