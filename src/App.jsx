@@ -50,6 +50,15 @@ const sb = {
       headers: { ...this.headers, "Authorization": "Bearer " + token }
     });
     return r.json();
+  },
+
+  async resetPassword(email) {
+    const r = await fetch(SUPABASE_URL + "/auth/v1/recover", {
+      method: "POST",
+      headers: this.headers,
+      body: JSON.stringify({ email })
+    });
+    return r.json();
   }
 };
 import { AreaChart, Area, XAxis, YAxis, ReferenceLine, Tooltip, ResponsiveContainer } from "recharts";
@@ -658,14 +667,28 @@ function AskAIPopup({ resultContext, onClose }) {
 
 // ── Auth Modal (Giriş / Kayıt) ────────────────────────────────────────────────
 function AuthModal({ mode: initMode, onClose, onSuccess, onRegister, onLogin, fromAnalyze }) {
-  const [mode,  setMode]  = useState(initMode||"login"); // login | register
+  const [mode,  setMode]  = useState(initMode||"login"); // login | register | forgot
   const [name,  setName]  = useState("");
   const [email, setEmail] = useState("");
   const [pass,  setPass]  = useState("");
   const [err,   setErr]   = useState("");
   const [ok,    setOk]    = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
   const [loading, setLoading] = useState(false);
+
+  const sendReset = async () => {
+    if (!email.includes("@")) return setErr("Geçerli bir e-posta girin.");
+    setLoading(true);
+    setErr("");
+    try {
+      await sb.resetPassword(email.trim());
+      setResetSent(true);
+    } catch(e) {
+      setErr("Bir hata oluştu. Tekrar deneyin.");
+    }
+    setLoading(false);
+  };
 
   const submit = async () => {
     if (loading) return;
@@ -705,11 +728,11 @@ function AuthModal({ mode: initMode, onClose, onSuccess, onRegister, onLogin, fr
         
         <div style={{textAlign:"center",marginBottom:28}}>
           <div style={{width:52,height:52,borderRadius:14,background:"linear-gradient(135deg,#00C9A7,#0080FF)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,margin:"0 auto 14px"}}>🧬</div>
-          <h3 style={{fontFamily:"Georgia,serif",fontSize:22,color:"#fff",fontWeight:700}}>{mode==="login"?"Hoş Geldiniz":"Hesap Oluştur"}</h3>
+          <h3 style={{fontFamily:"Georgia,serif",fontSize:22,color:"#fff",fontWeight:700}}>{mode==="login"?"Hoş Geldiniz":mode==="forgot"?"Şifre Sıfırla":"Hesap Oluştur"}</h3>
           <p style={{fontSize:13,color:"rgba(255,255,255,0.38)",marginTop:5}}>
             {fromAnalyze
               ? mode==="register" ? "Analiz yapabilmek için ücretsiz kayıt olun" : "Devam etmek için giriş yapın"
-              : mode==="login" ? "Hesabınıza giriş yapın" : "BioScope'a ücretsiz üye olun"
+              : mode==="login" ? "Hesabınıza giriş yapın" : "BioScope’a ücretsiz üye olun"
             }
           </p>
           {fromAnalyze && mode==="register" && (
@@ -732,6 +755,47 @@ function AuthModal({ mode: initMode, onClose, onSuccess, onRegister, onLogin, fr
               <div style={{height:"100%",width:"100%",background:"linear-gradient(90deg,#00C9A7,#0080FF)",borderRadius:99,animation:"shrink 2s linear forwards"}} />
             </div>
             <style>{`@keyframes shrink { from { width:100%; } to { width:0%; } }`}</style>
+          </div>
+        ) : mode==="forgot" ? (
+          <div>
+            {resetSent ? (
+              <div style={{textAlign:"center",padding:"16px 0"}}>
+                <div style={{fontSize:48,marginBottom:14}}>📧</div>
+                <div style={{fontFamily:"Georgia,serif",fontSize:20,color:"#fff",fontWeight:700,marginBottom:8}}>Mail gönderildi!</div>
+                <div style={{fontSize:13,color:"rgba(255,255,255,0.5)",lineHeight:1.7,marginBottom:20}}>
+                  {email} adresine şifre sıfırlama linki gönderildi. Gelen kutunuzu kontrol edin.
+                </div>
+                <button onClick={()=>{setMode("login");setResetSent(false);setEmail("");setErr("");}}
+                  style={{padding:"10px 24px",borderRadius:9,border:"1px solid rgba(0,201,167,0.3)",background:"none",color:"#00C9A7",fontWeight:600,fontSize:13,cursor:"pointer"}}>
+                  Giriş Yap
+                </button>
+              </div>
+            ) : (
+              <div>
+                {err && <div style={{background:"rgba(239,83,80,0.1)",border:"1px solid rgba(239,83,80,0.3)",borderRadius:8,padding:"10px 14px",fontSize:13,color:"#EF5350",marginBottom:16}}>{err}</div>}
+                <p style={{fontSize:13,color:"rgba(255,255,255,0.5)",marginBottom:18,lineHeight:1.7}}>
+                  Kayıtlı e-posta adresinizi girin. Şifre sıfırlama linki göndereceğiz.
+                </p>
+                <div style={{marginBottom:18}}>
+                  <label style={{fontSize:12,color:"rgba(255,255,255,0.55)",fontWeight:600,display:"block",marginBottom:6}}>E-posta</label>
+                  <input type="email" value={email} onChange={e=>setEmail(e.target.value)}
+                    placeholder="ornek@mail.com"
+                    style={{width:"100%",padding:"11px 14px",borderRadius:9,border:"1px solid rgba(255,255,255,0.07)",background:"rgba(255,255,255,0.04)",color:"#fff",fontSize:14,outline:"none",boxSizing:"border-box"}}
+                    onFocus={e=>e.target.style.borderColor="#00C9A7"}
+                    onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.07)"}
+                    onKeyDown={e=>e.key==="Enter"&&sendReset()} />
+                </div>
+                <button onClick={sendReset} disabled={loading}
+                  style={{width:"100%",padding:"13px",borderRadius:10,border:"none",background:loading?"rgba(0,201,167,0.4)":"linear-gradient(135deg,#00C9A7,#0080FF)",color:"#fff",fontWeight:700,fontSize:15,cursor:loading?"default":"pointer",marginBottom:14}}>
+                  {loading ? "Gönderiliyor..." : "Sıfırlama Linki Gönder"}
+                </button>
+                <div style={{textAlign:"center"}}>
+                  <span onClick={()=>{setMode("login");setErr("");}} style={{fontSize:13,color:"#00C9A7",cursor:"pointer",fontWeight:600}}>
+                    Giriş Yap
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <>
@@ -767,8 +831,12 @@ function AuthModal({ mode: initMode, onClose, onSuccess, onRegister, onLogin, fr
             </button>
 
             <div style={{textAlign:"center",fontSize:13,color:"rgba(255,255,255,0.38)"}}>
-              {mode==="login" ? <>Hesabınız yok mu? <span onClick={()=>setMode("register")} style={{color:"#00C9A7",cursor:"pointer",fontWeight:600}}>Kayıt Ol</span></> 
-              : <>Zaten üye misiniz? <span onClick={()=>setMode("login")} style={{color:"#00C9A7",cursor:"pointer",fontWeight:600}}>Giriş Yap</span></>}
+              {mode==="login" ? (
+                <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                  <div>Hesabınız yok mu? <span onClick={()=>setMode("register")} style={{color:"#00C9A7",cursor:"pointer",fontWeight:600}}>Kayıt Ol</span></div>
+                  <div><span onClick={()=>{setMode("forgot");setErr("");}} style={{color:"rgba(255,255,255,0.38)",cursor:"pointer",textDecoration:"underline",fontSize:12}}>Şifremi Unuttum</span></div>
+                </div>
+              ) : <>Zaten üye misiniz? <span onClick={()=>setMode("login")} style={{color:"#00C9A7",cursor:"pointer",fontWeight:600}}>Giriş Yap</span></>}
             </div>
           </>
         )}
