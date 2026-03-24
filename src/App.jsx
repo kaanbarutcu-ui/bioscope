@@ -59,6 +59,15 @@ const sb = {
       body: JSON.stringify({ email })
     });
     return r.json();
+  },
+
+  async updatePassword(accessToken, newPassword) {
+    const r = await fetch(SUPABASE_URL + "/auth/v1/user", {
+      method: "PUT",
+      headers: { ...this.headers, "Authorization": "Bearer " + accessToken },
+      body: JSON.stringify({ password: newPassword })
+    });
+    return r.json();
   }
 };
 import { AreaChart, Area, XAxis, YAxis, ReferenceLine, Tooltip, ResponsiveContainer } from "recharts";
@@ -666,6 +675,86 @@ function AskAIPopup({ resultContext, onClose }) {
 }
 
 // ── Auth Modal (Giriş / Kayıt) ────────────────────────────────────────────────
+// ── Şifre Sıfırlama Modal ─────────────────────────────────────────────────────
+function ResetPasswordModal({ accessToken, onClose }) {
+  const [pass,    setPass]    = useState("");
+  const [pass2,   setPass2]   = useState("");
+  const [err,     setErr]     = useState("");
+  const [ok,      setOk]      = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const submit = async () => {
+    if (pass.length < 6)   return setErr("Şifre en az 6 karakter olmalı.");
+    if (pass !== pass2)    return setErr("Şifreler eşleşmiyor.");
+    setLoading(true);
+    setErr("");
+    try {
+      const res = await sb.updatePassword(accessToken, pass);
+      if (res.error) {
+        setErr("Bir hata oluştu. Lütfen tekrar deneyin.");
+      } else {
+        setOk(true);
+        setTimeout(() => { onClose(); }, 2500);
+      }
+    } catch(e) {
+      setErr("Bağlantı hatası. Lütfen tekrar deneyin.");
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div style={{position:"fixed",inset:0,zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.7)",backdropFilter:"blur(8px)"}} />
+      <div style={{position:"relative",background:"rgba(255,255,255,0.03)",border:"1px solid rgba(0,201,167,0.2)",borderRadius:20,width:"100%",maxWidth:420,padding:32,boxShadow:"0 20px 60px rgba(0,0,0,0.6)"}}
+        onClick={e=>e.stopPropagation()}>
+
+        <div style={{textAlign:"center",marginBottom:28}}>
+          <div style={{width:52,height:52,borderRadius:14,background:"linear-gradient(135deg,#00C9A7,#0080FF)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,margin:"0 auto 14px"}}>🔐</div>
+          <h3 style={{fontFamily:"Georgia,serif",fontSize:22,color:"#fff",fontWeight:700}}>Yeni Şifre Belirle</h3>
+          <p style={{fontSize:13,color:"rgba(255,255,255,0.38)",marginTop:5}}>Hesabınız için yeni bir şifre oluşturun.</p>
+        </div>
+
+        {ok ? (
+          <div style={{textAlign:"center",padding:"16px 0"}}>
+            <div style={{fontSize:52,marginBottom:12}}>✅</div>
+            <div style={{fontFamily:"Georgia,serif",fontSize:20,color:"#fff",fontWeight:700,marginBottom:6}}>Şifre güncellendi!</div>
+            <div style={{fontSize:13,color:"rgba(255,255,255,0.45)"}}>Yönlendiriliyorsunuz...</div>
+          </div>
+        ) : (
+          <>
+            {err && (
+              <div style={{background:"rgba(239,83,80,0.1)",border:"1px solid rgba(239,83,80,0.3)",borderRadius:8,padding:"10px 14px",fontSize:13,color:"#EF5350",marginBottom:16}}>
+                {err}
+              </div>
+            )}
+            <div style={{marginBottom:14}}>
+              <label style={{fontSize:12,color:"rgba(255,255,255,0.55)",fontWeight:600,display:"block",marginBottom:6}}>Yeni Şifre</label>
+              <input type="password" value={pass} onChange={e=>setPass(e.target.value)}
+                placeholder="En az 6 karakter"
+                style={{width:"100%",padding:"11px 14px",borderRadius:9,border:"1px solid rgba(255,255,255,0.07)",background:"rgba(255,255,255,0.04)",color:"#fff",fontSize:14,outline:"none",boxSizing:"border-box"}}
+                onFocus={e=>e.target.style.borderColor="#00C9A7"}
+                onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.07)"} />
+            </div>
+            <div style={{marginBottom:22}}>
+              <label style={{fontSize:12,color:"rgba(255,255,255,0.55)",fontWeight:600,display:"block",marginBottom:6}}>Yeni Şifre Tekrar</label>
+              <input type="password" value={pass2} onChange={e=>setPass2(e.target.value)}
+                placeholder="Şifreyi tekrar girin"
+                style={{width:"100%",padding:"11px 14px",borderRadius:9,border:"1px solid rgba(255,255,255,0.07)",background:"rgba(255,255,255,0.04)",color:"#fff",fontSize:14,outline:"none",boxSizing:"border-box"}}
+                onFocus={e=>e.target.style.borderColor="#00C9A7"}
+                onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.07)"}
+                onKeyDown={e=>e.key==="Enter"&&submit()} />
+            </div>
+            <button onClick={submit} disabled={loading}
+              style={{width:"100%",padding:"13px",borderRadius:10,border:"none",background:loading?"rgba(0,201,167,0.4)":"linear-gradient(135deg,#00C9A7,#0080FF)",color:"#fff",fontWeight:700,fontSize:15,cursor:loading?"default":"pointer"}}>
+              {loading ? "Güncelleniyor..." : "Şifreyi Güncelle"}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function AuthModal({ mode: initMode, onClose, onSuccess, onRegister, onLogin, fromAnalyze }) {
   const [mode,  setMode]  = useState(initMode||"login"); // login | register | forgot
   const [name,  setName]  = useState("");
@@ -3578,6 +3667,20 @@ export default function App() {
   const [pendingAnalyze, setPendingAnalyze] = useState(false);
   const [showContact,    setShowContact]    = useState(false);
   const [activePost,     setActivePost]     = useState(null);
+  const [resetToken,     setResetToken]     = useState(null);
+
+  // URL'de reset token var mı kontrol et
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash.includes("type=recovery") && hash.includes("access_token=")) {
+      const params = new URLSearchParams(hash.substring(1));
+      const token = params.get("access_token");
+      if (token) {
+        setResetToken(token);
+        window.history.replaceState(null, "", window.location.pathname);
+      }
+    }
+  }, []);
 
   const handleLogin = (u) => {
     setShowAuth(null);
@@ -3687,6 +3790,7 @@ export default function App() {
         }
       `}</style>
 
+      {resetToken && <ResetPasswordModal accessToken={resetToken} onClose={()=>setResetToken(null)} />}
       {showContact && <ContactModal onClose={()=>setShowContact(false)} />}
 
       {showAuth && (
