@@ -232,7 +232,7 @@ BİRİM DÖNÜŞÜM KURALLARI:
 {"age":null,"glucose":null,"hba1c":null,"triglyceride":null,"hdl":null,"ldl":null,"albumin":null,"alt":null,"alp":null,"creatinine":null,"crp":null,"wbc":null,"lymphocyte":null,"mcv":null,"rdw":null}
 
 Bulamazsan null bırak. SADECE JSON döndür.`;
-  const res = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},
+  const res = await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,
       messages:[{role:"user",content:[{type:"document",source:{type:"base64",media_type:"application/pdf",data:base64Data}},{type:"text",text:prompt}]}]})});
   if(!res.ok) throw new Error(`API ${res.status}`);
@@ -245,7 +245,7 @@ async function fetchAI(vals,bioAge,chronoAge,meds=[]) {
   const diff=(bioAge-chronoAge).toFixed(1);
   const lines=BIOMARKERS.filter(b=>b.key!=="age"&&vals[b.key]!=null).map(b=>`${b.label}: ${vals[b.key]} ${b.unit}`).join(", ");
   const medsNote = meds.length>0 ? `\nÖNEMLİ: Hasta şu ilaç/takviye kategorilerini kullanıyor: ${meds.join(", ")}. Bu ilaçların kan değerlerine etkilerini yorumunda mutlaka belirt ve değerleri değerlendirirken bu etkiyi göz önünde bulundur.` : "";
-  const res = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},
+  const res = await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:900,
       messages:[{role:"user",content:`Sen klinik biyokimya profesörü bir uzmansın.\nHasta: Kronolojik yaş ${chronoAge}, Biyolojik yaş ${bioAge} (fark: ${diff>0?"+":""}${diff} yıl)\nKan değerleri: ${lines}${medsNote}\nTürkçe, kısa yorum yaz (maks 180 kelime):\n1. Genel değerlendirme\n2. Dikkat çeken 2-3 değer (ilaç etkisi varsa belirt)\n3. 3 somut öneri\nTanı koyma, sadece bilgilendirme.`}]})});
   if(!res.ok) throw new Error(`API ${res.status}`);
@@ -254,7 +254,7 @@ async function fetchAI(vals,bioAge,chronoAge,meds=[]) {
 }
 
 async function askAI(question, context) {
-  const res = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},
+  const res = await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:600,
       messages:[{role:"user",content:`Sen BioScope platformunun klinik biyokimya asistanısın. Türkçe, anlaşılır ve bilimsel yanıt ver.\n\nKullanıcının kan değerleri: ${context}\n\nSoru: ${question}\n\nMaks 120 kelime. Tanı koyma, bilgilendirme yap.`}]})});
   if(!res.ok) throw new Error(`API ${res.status}`);
