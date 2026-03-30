@@ -1,75 +1,4 @@
 import { useState, useEffect, useRef } from "react";
-
-// ── Supabase ──────────────────────────────────────────────────────────────────
-const SUPABASE_URL = "https://pzvmdavffzsncvsppuqk.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6dm1kYXZmZnpzbmN2c3BwdXFrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxMTE4NjUsImV4cCI6MjA4OTY4Nzg2NX0.1T4oVtCpJ05XAvG3hAPri4atYe64v6_olIuP636g-NE";
-
-const sb = {
-  headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY, "Content-Type": "application/json" },
-
-  async signUp(email, password, name) {
-    const r = await fetch(SUPABASE_URL + "/auth/v1/signup", {
-      method:"POST", headers: this.headers,
-      body: JSON.stringify({ email, password, data: { name } })
-    });
-    return r.json();
-  },
-
-  async signIn(email, password) {
-    const r = await fetch(SUPABASE_URL + "/auth/v1/token?grant_type=password", {
-      method:"POST", headers: this.headers,
-      body: JSON.stringify({ email, password })
-    });
-    return r.json();
-  },
-
-  async signOut(token) {
-    await fetch(SUPABASE_URL + "/auth/v1/logout", {
-      method:"POST", headers: { ...this.headers, "Authorization": "Bearer " + token }
-    });
-  },
-
-  async getUser(token) {
-    const r = await fetch(SUPABASE_URL + "/auth/v1/user", {
-      headers: { ...this.headers, "Authorization": "Bearer " + token }
-    });
-    return r.json();
-  },
-
-  async saveAnalysis(token, data) {
-    const r = await fetch(SUPABASE_URL + "/rest/v1/analyses", {
-      method:"POST",
-      headers: { ...this.headers, "Authorization": "Bearer " + token, "Prefer": "return=representation" },
-      body: JSON.stringify(data)
-    });
-    return r.json();
-  },
-
-  async getAnalyses(token, userId) {
-    const r = await fetch(SUPABASE_URL + "/rest/v1/analyses?user_id=eq." + userId + "&order=created_at.desc", {
-      headers: { ...this.headers, "Authorization": "Bearer " + token }
-    });
-    return r.json();
-  },
-
-  async resetPassword(email) {
-    const r = await fetch(SUPABASE_URL + "/auth/v1/recover", {
-      method: "POST",
-      headers: this.headers,
-      body: JSON.stringify({ email })
-    });
-    return r.json();
-  },
-
-  async updatePassword(accessToken, newPassword) {
-    const r = await fetch(SUPABASE_URL + "/auth/v1/user", {
-      method: "PUT",
-      headers: { ...this.headers, "Authorization": "Bearer " + accessToken },
-      body: JSON.stringify({ password: newPassword })
-    });
-    return r.json();
-  }
-};
 import { AreaChart, Area, XAxis, YAxis, ReferenceLine, Tooltip, ResponsiveContainer } from "recharts";
 
 // ── Sabitler ──────────────────────────────────────────────────────────────────
@@ -111,70 +40,46 @@ const SYSTEM_KEYS = [
 // ── Storage (kullanıcı verileri localStorage yerine state'te) ─────────────────
 // Demo auth — gerçek projede backend gerekir
 function useAuth() {
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(() => {
+    try { const u = sessionStorage.getItem("bioscope_user"); return u ? JSON.parse(u) : null; } catch { return null; }
+  });
 
-  // Sayfa açılınca localStorage'dan session kontrol et
-  useEffect(() => {
-    const token = localStorage.getItem("sb_token");
-    const userData = localStorage.getItem("sb_user");
-    if (token && userData) {
-      try {
-        const parsed = JSON.parse(userData);
-        setUser(parsed);
-        // Token hala geçerli mi kontrol et
-        sb.getUser(token).then(res => {
-          if (res.error) {
-            localStorage.removeItem("sb_token");
-            localStorage.removeItem("sb_user");
-            setUser(null);
-          }
-        });
-      } catch(e) {
-        localStorage.removeItem("sb_token");
-        localStorage.removeItem("sb_user");
-      }
-    }
-  }, []);
+  // Kayıtlı kullanıcılar: { email: { name, hash, joinDate } }
+  const getUsers = () => { try { return JSON.parse(sessionStorage.getItem("bioscope_users")||"{}"); } catch { return {}; } };
+  const saveUsers = (u) => sessionStorage.setItem("bioscope_users", JSON.stringify(u));
 
-  const register = async (name, email, password) => {
-    const res = await sb.signUp(email, password, name);
-    if (res.error) return { error: res.error.message || "Kayıt başarısız." };
-    if (res.access_token) {
-      const u = { id: res.user.id, name, email };
-      localStorage.setItem("sb_token", res.access_token);
-      localStorage.setItem("sb_user", JSON.stringify(u));
+  const register = (name, email, pass) => {
+    const users = getUsers();
+    if (users[email.toLowerCase()]) return { error: "Bu e-posta zaten kayıtlı." };
+    const rec = { name, hash: btoa(pass), joinDate: new Date().toLocaleDateString("tr-TR") };
+    users[email.toLowerCase()] = rec;
+    saveUsers(users);
+    const u = { name, email, joinDate: rec.joinDate };
+    sessionStorage.setItem("bioscope_user", JSON.stringify(u));
+    setUser(u);
+    return { user: u };
+  };
+
+  const loginWithPass = (email, pass) => {
+    const normalizedEmail = email.toLowerCase().trim();
+    // Admin bypass — şifre ne olursa olsun giriş yapabilir
+    if (ADMIN_EMAILS.includes(normalizedEmail)) {
+      const u = { name: "Admin", email: normalizedEmail, joinDate: "1 Ocak 2025" };
+      sessionStorage.setItem("bioscope_user", JSON.stringify(u));
       setUser(u);
-      return { success: true };
+      return { user: u };
     }
-    // E-posta doğrulama gerekiyorsa
-    return { confirm: true };
+    const users = getUsers();
+    const rec = users[normalizedEmail];
+    if (!rec) return { error: "Bu e-posta ile kayıtlı hesap bulunamadı." };
+    if (rec.hash !== btoa(pass)) return { error: "Şifre yanlış. Lütfen tekrar deneyin." };
+    const u = { name: rec.name, email: normalizedEmail, joinDate: rec.joinDate };
+    sessionStorage.setItem("bioscope_user", JSON.stringify(u));
+    setUser(u);
+    return { user: u };
   };
 
-  const loginWithPass = async (email, password) => {
-    try {
-      const res = await sb.signIn(email, password);
-      if (res.error || !res.access_token) {
-        return { error: "E-posta adresi veya şifre hatalı." };
-      }
-      const name = res.user?.user_metadata?.name || email.split("@")[0];
-      const u = { id: res.user.id, name, email };
-      localStorage.setItem("sb_token", res.access_token);
-      localStorage.setItem("sb_user", JSON.stringify(u));
-      setUser(u);
-      return { success: true, user: u };
-    } catch(e) {
-      return { error: "Bağlantı hatası. Lütfen tekrar deneyin." };
-    }
-  };
-
-  const logout = async () => {
-    const token = localStorage.getItem("sb_token");
-    if (token) await sb.signOut(token);
-    localStorage.removeItem("sb_token");
-    localStorage.removeItem("sb_user");
-    setUser(null);
-  };
-
+  const logout = () => { sessionStorage.removeItem("bioscope_user"); setUser(null); };
   return { user, register, loginWithPass, logout };
 }
 
@@ -232,7 +137,7 @@ BİRİM DÖNÜŞÜM KURALLARI:
 {"age":null,"glucose":null,"hba1c":null,"triglyceride":null,"hdl":null,"ldl":null,"albumin":null,"alt":null,"alp":null,"creatinine":null,"crp":null,"wbc":null,"lymphocyte":null,"mcv":null,"rdw":null}
 
 Bulamazsan null bırak. SADECE JSON döndür.`;
-  const res = await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},
+  const res = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,
       messages:[{role:"user",content:[{type:"document",source:{type:"base64",media_type:"application/pdf",data:base64Data}},{type:"text",text:prompt}]}]})});
   if(!res.ok) throw new Error(`API ${res.status}`);
@@ -241,20 +146,19 @@ Bulamazsan null bırak. SADECE JSON döndür.`;
   return JSON.parse(text.replace(/```json|```/g,"").trim());
 }
 
-async function fetchAI(vals,bioAge,chronoAge,meds=[]) {
+async function fetchAI(vals,bioAge,chronoAge) {
   const diff=(bioAge-chronoAge).toFixed(1);
   const lines=BIOMARKERS.filter(b=>b.key!=="age"&&vals[b.key]!=null).map(b=>`${b.label}: ${vals[b.key]} ${b.unit}`).join(", ");
-  const medsNote = meds.length>0 ? `\nÖNEMLİ: Hasta şu ilaç/takviye kategorilerini kullanıyor: ${meds.join(", ")}. Bu ilaçların kan değerlerine etkilerini yorumunda mutlaka belirt ve değerleri değerlendirirken bu etkiyi göz önünde bulundur.` : "";
-  const res = await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:900,
-      messages:[{role:"user",content:`Sen klinik biyokimya profesörü bir uzmansın.\nHasta: Kronolojik yaş ${chronoAge}, Biyolojik yaş ${bioAge} (fark: ${diff>0?"+":""}${diff} yıl)\nKan değerleri: ${lines}${medsNote}\nTürkçe, kısa yorum yaz (maks 180 kelime):\n1. Genel değerlendirme\n2. Dikkat çeken 2-3 değer (ilaç etkisi varsa belirt)\n3. 3 somut öneri\nTanı koyma, sadece bilgilendirme.`}]})});
+  const res = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:800,
+      messages:[{role:"user",content:`Sen klinik biyokimya profesörü bir uzmansın.\nHasta: Kronolojik yaş ${chronoAge}, Biyolojik yaş ${bioAge} (fark: ${diff>0?"+":""}${diff} yıl)\nKan değerleri: ${lines}\nTürkçe, kısa yorum yaz (maks 150 kelime):\n1. Genel değerlendirme\n2. Dikkat çeken 2-3 değer\n3. 3 somut öneri\nTanı koyma, sadece bilgilendirme.`}]})});
   if(!res.ok) throw new Error(`API ${res.status}`);
   const data=await res.json(); if(data.error) throw new Error(data.error.message);
   return data.content?.[0]?.text||"Yorum alınamadı.";
 }
 
 async function askAI(question, context) {
-  const res = await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},
+  const res = await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:600,
       messages:[{role:"user",content:`Sen BioScope platformunun klinik biyokimya asistanısın. Türkçe, anlaşılır ve bilimsel yanıt ver.\n\nKullanıcının kan değerleri: ${context}\n\nSoru: ${question}\n\nMaks 120 kelime. Tanı koyma, bilgilendirme yap.`}]})});
   if(!res.ok) throw new Error(`API ${res.status}`);
@@ -404,7 +308,7 @@ function LegalModal({ type, onClose }) {
 // ── İletişim Modal ────────────────────────────────────────────────────────────
 // Formspree: https://formspree.io adresinden ücretsiz form oluşturun
 // Oluşturduğunuz form ID'sini aşağıya yapıştırın (örn: "xpzgkwqr")
-const FORMSPREE_ID = "xgonbalb";
+const FORMSPREE_ID = "YOUR_FORM_ID";
 
 function ContactModal({ onClose }) {
   const [name,    setName]    = useState("");
@@ -649,7 +553,7 @@ function AskAIPopup({ resultContext, onClose }) {
               <button key={s} onClick={()=>setInput(s)}
                 style={{padding:"5px 10px",borderRadius:6,border:"1px solid rgba(0,201,167,0.25)",background:"rgba(0,201,167,0.06)",color:"rgba(255,255,255,0.55)",fontSize:11,cursor:"pointer",transition:"all 0.2s"}}
                 onMouseEnter={e=>{e.currentTarget.style.borderColor="rgba(0,201,167,0.5)";e.currentTarget.style.color="#fff";}}
-                onMouseLeave={e=>{e.currentTarget.style.borderColor="rgba(0,201,167,0.25)";e.currentTarget.style.color="rgba(255,255,255,0.55)";}}>
+                onMouseLeave={e=>{e.currentTarget.style.borderColor="rgba(0,201,167,0.25)";e.currentTarget.style.color="rgba(0,201,167,0.1)";}}>
                 {s}
               </button>
             ))}
@@ -675,135 +579,30 @@ function AskAIPopup({ resultContext, onClose }) {
 }
 
 // ── Auth Modal (Giriş / Kayıt) ────────────────────────────────────────────────
-// ── Şifre Sıfırlama Modal ─────────────────────────────────────────────────────
-function ResetPasswordModal({ accessToken, onClose }) {
-  const [pass,    setPass]    = useState("");
-  const [pass2,   setPass2]   = useState("");
-  const [err,     setErr]     = useState("");
-  const [ok,      setOk]      = useState(false);
-  const [loading, setLoading] = useState(false);
-
-  const submit = async () => {
-    if (pass.length < 6)   return setErr("Şifre en az 6 karakter olmalı.");
-    if (pass !== pass2)    return setErr("Şifreler eşleşmiyor.");
-    setLoading(true);
-    setErr("");
-    try {
-      const res = await sb.updatePassword(accessToken, pass);
-      if (res.error) {
-        setErr("Bir hata oluştu. Lütfen tekrar deneyin.");
-      } else {
-        setOk(true);
-        setTimeout(() => { onClose(); }, 2500);
-      }
-    } catch(e) {
-      setErr("Bağlantı hatası. Lütfen tekrar deneyin.");
-    }
-    setLoading(false);
-  };
-
-  return (
-    <div style={{position:"fixed",inset:0,zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
-      <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.7)",backdropFilter:"blur(8px)"}} />
-      <div style={{position:"relative",background:"rgba(255,255,255,0.03)",border:"1px solid rgba(0,201,167,0.2)",borderRadius:20,width:"100%",maxWidth:420,padding:32,boxShadow:"0 20px 60px rgba(0,0,0,0.6)"}}
-        onClick={e=>e.stopPropagation()}>
-
-        <div style={{textAlign:"center",marginBottom:28}}>
-          <div style={{width:52,height:52,borderRadius:14,background:"linear-gradient(135deg,#00C9A7,#0080FF)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,margin:"0 auto 14px"}}>🔐</div>
-          <h3 style={{fontFamily:"Georgia,serif",fontSize:22,color:"#fff",fontWeight:700}}>Yeni Şifre Belirle</h3>
-          <p style={{fontSize:13,color:"rgba(255,255,255,0.38)",marginTop:5}}>Hesabınız için yeni bir şifre oluşturun.</p>
-        </div>
-
-        {ok ? (
-          <div style={{textAlign:"center",padding:"16px 0"}}>
-            <div style={{fontSize:52,marginBottom:12}}>✅</div>
-            <div style={{fontFamily:"Georgia,serif",fontSize:20,color:"#fff",fontWeight:700,marginBottom:6}}>Şifre güncellendi!</div>
-            <div style={{fontSize:13,color:"rgba(255,255,255,0.45)"}}>Yönlendiriliyorsunuz...</div>
-          </div>
-        ) : (
-          <>
-            {err && (
-              <div style={{background:"rgba(239,83,80,0.1)",border:"1px solid rgba(239,83,80,0.3)",borderRadius:8,padding:"10px 14px",fontSize:13,color:"#EF5350",marginBottom:16}}>
-                {err}
-              </div>
-            )}
-            <div style={{marginBottom:14}}>
-              <label style={{fontSize:12,color:"rgba(255,255,255,0.55)",fontWeight:600,display:"block",marginBottom:6}}>Yeni Şifre</label>
-              <input type="password" value={pass} onChange={e=>setPass(e.target.value)}
-                placeholder="En az 6 karakter"
-                style={{width:"100%",padding:"11px 14px",borderRadius:9,border:"1px solid rgba(255,255,255,0.07)",background:"rgba(255,255,255,0.04)",color:"#fff",fontSize:14,outline:"none",boxSizing:"border-box"}}
-                onFocus={e=>e.target.style.borderColor="#00C9A7"}
-                onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.07)"} />
-            </div>
-            <div style={{marginBottom:22}}>
-              <label style={{fontSize:12,color:"rgba(255,255,255,0.55)",fontWeight:600,display:"block",marginBottom:6}}>Yeni Şifre Tekrar</label>
-              <input type="password" value={pass2} onChange={e=>setPass2(e.target.value)}
-                placeholder="Şifreyi tekrar girin"
-                style={{width:"100%",padding:"11px 14px",borderRadius:9,border:"1px solid rgba(255,255,255,0.07)",background:"rgba(255,255,255,0.04)",color:"#fff",fontSize:14,outline:"none",boxSizing:"border-box"}}
-                onFocus={e=>e.target.style.borderColor="#00C9A7"}
-                onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.07)"}
-                onKeyDown={e=>e.key==="Enter"&&submit()} />
-            </div>
-            <button onClick={submit} disabled={loading}
-              style={{width:"100%",padding:"13px",borderRadius:10,border:"none",background:loading?"rgba(0,201,167,0.4)":"linear-gradient(135deg,#00C9A7,#0080FF)",color:"#fff",fontWeight:700,fontSize:15,cursor:loading?"default":"pointer"}}>
-              {loading ? "Güncelleniyor..." : "Şifreyi Güncelle"}
-            </button>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function AuthModal({ mode: initMode, onClose, onSuccess, onRegister, onLogin, fromAnalyze }) {
-  const [mode,  setMode]  = useState(initMode||"login"); // login | register | forgot
+  const [mode,  setMode]  = useState(initMode||"login"); // login | register
   const [name,  setName]  = useState("");
   const [email, setEmail] = useState("");
   const [pass,  setPass]  = useState("");
   const [err,   setErr]   = useState("");
   const [ok,    setOk]    = useState(false);
-  const [resetSent, setResetSent] = useState(false);
 
-  const [loading, setLoading] = useState(false);
-
-  const sendReset = async () => {
-    if (!email.includes("@")) return setErr("Geçerli bir e-posta girin.");
-    setLoading(true);
+  const submit = () => {
     setErr("");
-    try {
-      await sb.resetPassword(email.trim());
-      setResetSent(true);
-    } catch(e) {
-      setErr("Bir hata oluştu. Tekrar deneyin.");
-    }
-    setLoading(false);
-  };
-
-  const submit = async () => {
-    if (loading) return;
-    setErr("");
-    setOk(false);
-    setLoading(true);
-    try {
-      if (mode==="register") {
-        if (!name.trim())        { setLoading(false); return setErr("Ad soyad zorunlu."); }
-        if (!email.includes("@")){ setLoading(false); return setErr("Geçerli bir e-posta girin."); }
-        if (pass.length < 6)     { setLoading(false); return setErr("Şifre en az 6 karakter olmalı."); }
-        const res = await onRegister(name.trim(), email.trim(), pass);
-        if (!res || res.error) { setLoading(false); return setErr(res?.error || "Kayıt başarısız. Tekrar deneyin."); }
-        setOk(true);
-        setTimeout(() => { onSuccess(res.user || {}); }, 2000);
-      } else {
-        if (!email || !pass) { setLoading(false); return setErr("Tüm alanları doldurun."); }
-        const res = await onLogin(email.trim(), pass);
-        if (!res || res.error) { setLoading(false); return setErr("E-posta adresi veya şifre hatalı."); }
-        if (!res.success && !res.user) { setLoading(false); return setErr("E-posta adresi veya şifre hatalı."); }
-        setOk(true);
-        setTimeout(() => { onSuccess(res.user || {}); }, 2000);
-      }
-    } catch(e) {
-      setLoading(false);
-      setErr("Bir hata oluştu. Lütfen tekrar deneyin.");
+    if (mode==="register") {
+      if (!name.trim())        return setErr("Ad soyad zorunlu.");
+      if (!email.includes("@"))return setErr("Geçerli bir e-posta girin.");
+      if (pass.length < 6)     return setErr("Şifre en az 6 karakter olmalı.");
+      const res = onRegister(name.trim(), email.trim(), pass);
+      if (res.error) return setErr(res.error);
+      setOk(true);
+      setTimeout(() => { onSuccess(res.user); }, 2000);
+    } else {
+      if (!email || !pass) return setErr("Tüm alanları doldurun.");
+      const res = onLogin(email.trim(), pass);
+      if (res.error) return setErr(res.error);
+      setOk(true);
+      setTimeout(() => { onSuccess(res.user); }, 2000);
     }
   };
 
@@ -817,11 +616,11 @@ function AuthModal({ mode: initMode, onClose, onSuccess, onRegister, onLogin, fr
         
         <div style={{textAlign:"center",marginBottom:28}}>
           <div style={{width:52,height:52,borderRadius:14,background:"linear-gradient(135deg,#00C9A7,#0080FF)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,margin:"0 auto 14px"}}>🧬</div>
-          <h3 style={{fontFamily:"Georgia,serif",fontSize:22,color:"#fff",fontWeight:700}}>{mode==="login"?"Hoş Geldiniz":mode==="forgot"?"Şifre Sıfırla":"Hesap Oluştur"}</h3>
+          <h3 style={{fontFamily:"Georgia,serif",fontSize:22,color:"#fff",fontWeight:700}}>{mode==="login"?"Hoş Geldiniz":"Hesap Oluştur"}</h3>
           <p style={{fontSize:13,color:"rgba(255,255,255,0.38)",marginTop:5}}>
             {fromAnalyze
               ? mode==="register" ? "Analiz yapabilmek için ücretsiz kayıt olun" : "Devam etmek için giriş yapın"
-              : mode==="login" ? "Hesabınıza giriş yapın" : "BioScope’a ücretsiz üye olun"
+              : mode==="login" ? "Hesabınıza giriş yapın" : "BioScope'a ücretsiz üye olun"
             }
           </p>
           {fromAnalyze && mode==="register" && (
@@ -844,47 +643,6 @@ function AuthModal({ mode: initMode, onClose, onSuccess, onRegister, onLogin, fr
               <div style={{height:"100%",width:"100%",background:"linear-gradient(90deg,#00C9A7,#0080FF)",borderRadius:99,animation:"shrink 2s linear forwards"}} />
             </div>
             <style>{`@keyframes shrink { from { width:100%; } to { width:0%; } }`}</style>
-          </div>
-        ) : mode==="forgot" ? (
-          <div>
-            {resetSent ? (
-              <div style={{textAlign:"center",padding:"16px 0"}}>
-                <div style={{fontSize:48,marginBottom:14}}>📧</div>
-                <div style={{fontFamily:"Georgia,serif",fontSize:20,color:"#fff",fontWeight:700,marginBottom:8}}>Mail gönderildi!</div>
-                <div style={{fontSize:13,color:"rgba(255,255,255,0.5)",lineHeight:1.7,marginBottom:20}}>
-                  {email} adresine şifre sıfırlama linki gönderildi. Gelen kutunuzu kontrol edin.
-                </div>
-                <button onClick={()=>{setMode("login");setResetSent(false);setEmail("");setErr("");}}
-                  style={{padding:"10px 24px",borderRadius:9,border:"1px solid rgba(0,201,167,0.3)",background:"none",color:"#00C9A7",fontWeight:600,fontSize:13,cursor:"pointer"}}>
-                  Giriş Yap
-                </button>
-              </div>
-            ) : (
-              <div>
-                {err && <div style={{background:"rgba(239,83,80,0.1)",border:"1px solid rgba(239,83,80,0.3)",borderRadius:8,padding:"10px 14px",fontSize:13,color:"#EF5350",marginBottom:16}}>{err}</div>}
-                <p style={{fontSize:13,color:"rgba(255,255,255,0.5)",marginBottom:18,lineHeight:1.7}}>
-                  Kayıtlı e-posta adresinizi girin. Şifre sıfırlama linki göndereceğiz.
-                </p>
-                <div style={{marginBottom:18}}>
-                  <label style={{fontSize:12,color:"rgba(255,255,255,0.55)",fontWeight:600,display:"block",marginBottom:6}}>E-posta</label>
-                  <input type="email" value={email} onChange={e=>setEmail(e.target.value)}
-                    placeholder="ornek@mail.com"
-                    style={{width:"100%",padding:"11px 14px",borderRadius:9,border:"1px solid rgba(255,255,255,0.07)",background:"rgba(255,255,255,0.04)",color:"#fff",fontSize:14,outline:"none",boxSizing:"border-box"}}
-                    onFocus={e=>e.target.style.borderColor="#00C9A7"}
-                    onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.07)"}
-                    onKeyDown={e=>e.key==="Enter"&&sendReset()} />
-                </div>
-                <button onClick={sendReset} disabled={loading}
-                  style={{width:"100%",padding:"13px",borderRadius:10,border:"none",background:loading?"rgba(0,201,167,0.4)":"linear-gradient(135deg,#00C9A7,#0080FF)",color:"#fff",fontWeight:700,fontSize:15,cursor:loading?"default":"pointer",marginBottom:14}}>
-                  {loading ? "Gönderiliyor..." : "Sıfırlama Linki Gönder"}
-                </button>
-                <div style={{textAlign:"center"}}>
-                  <span onClick={()=>{setMode("login");setErr("");}} style={{fontSize:13,color:"#00C9A7",cursor:"pointer",fontWeight:600}}>
-                    Giriş Yap
-                  </span>
-                </div>
-              </div>
-            )}
           </div>
         ) : (
           <>
@@ -914,18 +672,14 @@ function AuthModal({ mode: initMode, onClose, onSuccess, onRegister, onLogin, fr
                 onKeyDown={e=>e.key==="Enter"&&submit()} />
             </div>
 
-            <button onClick={submit} disabled={loading}
-              style={{width:"100%",padding:"13px",borderRadius:10,border:"none",background:loading?"rgba(0,201,167,0.4)":"linear-gradient(135deg,#00C9A7,#0080FF)",color:"#fff",fontWeight:700,fontSize:15,cursor:loading?"default":"pointer",marginBottom:16}}>
-              {loading ? "Lütfen bekleyin..." : mode==="login" ? "Giriş Yap" : "Kayıt Ol →"}
+            <button onClick={submit}
+              style={{width:"100%",padding:"13px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#00C9A7,#0080FF)",color:"#fff",fontWeight:700,fontSize:15,cursor:"pointer",marginBottom:16}}>
+              {mode==="login"?"Giriş Yap":"Kayıt Ol →"}
             </button>
 
             <div style={{textAlign:"center",fontSize:13,color:"rgba(255,255,255,0.38)"}}>
-              {mode==="login" ? (
-                <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                  <div>Hesabınız yok mu? <span onClick={()=>setMode("register")} style={{color:"#00C9A7",cursor:"pointer",fontWeight:600}}>Kayıt Ol</span></div>
-                  <div><span onClick={()=>{setMode("forgot");setErr("");}} style={{color:"rgba(255,255,255,0.38)",cursor:"pointer",textDecoration:"underline",fontSize:12}}>Şifremi Unuttum</span></div>
-                </div>
-              ) : <>Zaten üye misiniz? <span onClick={()=>setMode("login")} style={{color:"#00C9A7",cursor:"pointer",fontWeight:600}}>Giriş Yap</span></>}
+              {mode==="login" ? <>Hesabınız yok mu? <span onClick={()=>setMode("register")} style={{color:"#00C9A7",cursor:"pointer",fontWeight:600}}>Kayıt Ol</span></> 
+              : <>Zaten üye misiniz? <span onClick={()=>setMode("login")} style={{color:"#00C9A7",cursor:"pointer",fontWeight:600}}>Giriş Yap</span></>}
             </div>
           </>
         )}
@@ -1319,7 +1073,6 @@ function Navbar({ page, setPage, user, setShowAuth, onLogout, goAnalyze }) {
   }, []);
 
   const goHome   = () => { setPage("home"); window.scrollTo({top:0,behavior:"smooth"}); setMenuOpen(false); };
-  const goBlog   = () => { setPage("blog"); window.scrollTo({top:0,behavior:"smooth"}); setMenuOpen(false); };
   const scrollTo = (id) => {
     setMenuOpen(false);
     if (page !== "home") { setPage("home"); setTimeout(() => document.getElementById(id)?.scrollIntoView({behavior:"smooth"}), 320); }
@@ -1390,7 +1143,7 @@ function Navbar({ page, setPage, user, setShowAuth, onLogout, goAnalyze }) {
         <>
           <div onClick={()=>setMenuOpen(false)}
             style={{position:"fixed",inset:0,zIndex:198,background:"rgba(0,0,0,0.6)",backdropFilter:"blur(8px)"}} />
-          <div style={{position:"fixed",top:64,right:0,bottom:0,zIndex:199,width:300,background:"#04100E",borderLeft:"1px solid rgba(0,201,167,0.15)",display:"flex",flexDirection:"column",boxShadow:"-12px 0 40px rgba(0,0,0,0.6)"}}>
+          <div style={{position:"fixed",top:0,right:0,bottom:0,zIndex:199,width:300,background:"#04100E",borderLeft:"1px solid rgba(0,201,167,0.15)",display:"flex",flexDirection:"column",boxShadow:"-12px 0 40px rgba(0,0,0,0.6)"}}>
             <div style={{padding:"18px 24px",borderBottom:"1px solid rgba(255,255,255,0.07)",display:"flex",alignItems:"center",gap:9}}>
               <div style={{width:28,height:28,borderRadius:"50%",background:"linear-gradient(135deg,#00C9A7,#0080FF)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13}}>🧬</div>
               <span style={{fontFamily:"Georgia,serif",fontWeight:700,fontSize:17,color:"#fff"}}>BioScope</span>
@@ -1402,8 +1155,6 @@ function Navbar({ page, setPage, user, setShowAuth, onLogout, goAnalyze }) {
                 {label:"Nasıl Çalışır",  action:()=>scrollTo("how"),     icon:<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>},
                 {label:"Bilimsel Temel", action:()=>scrollTo("science"),  icon:<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 10c-.83 0-1.5-.67-1.5-1.5v-5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5z"/><path d="M20.5 10H19V8.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/><path d="M9.5 14c.83 0 1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5S8 21.33 8 20.5v-5c0-.83.67-1.5 1.5-1.5z"/><path d="M3.5 14H5v1.5c0 .83-.67 1.5-1.5 1.5S2 16.33 2 15.5 2.67 14 3.5 14z"/><path d="M14 14.5c0-.83.67-1.5 1.5-1.5h5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5h-5c-.83 0-1.5-.67-1.5-1.5z"/><path d="M15.5 19H14v1.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5-.67-1.5-1.5-1.5z"/><path d="M10 9.5C10 8.67 9.33 8 8.5 8h-5C2.67 8 2 8.67 2 9.5S2.67 11 3.5 11h5c.83 0 1.5-.67 1.5-1.5z"/><path d="M8.5 5H10V3.5C10 2.67 9.33 2 8.5 2S7 2.67 7 3.5 7.67 5 8.5 5z"/></svg>},
                 {label:"Fiyatlar",       action:()=>scrollTo("pricing"),  icon:<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>},
-                {label:"Blog",           action:goBlog,                  icon:<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>},
-                {label:"SSS",             action:()=>{setPage("sss");window.scrollTo({top:0,behavior:"smooth"});setMenuOpen(false);}, icon:<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>},
               ].map(item=>(
                 <button key={item.label} onClick={item.action}
                   style={{width:"100%",padding:"11px 20px",background:"none",border:"none",cursor:"pointer",display:"flex",alignItems:"center",gap:12,transition:"background 0.15s"}}
@@ -1424,7 +1175,7 @@ function Navbar({ page, setPage, user, setShowAuth, onLogout, goAnalyze }) {
                   <span style={{width:32,height:32,borderRadius:8,background:"rgba(0,201,167,0.1)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,color:"#00C9A7"}}>
                     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
                   </span>
-                  <span style={{fontSize:14,color:"rgba(255,255,255,0.8)",fontWeight:500,flex:1}}>Profilim</span>
+                  <span style={{fontSize:14,color:"#00C9A7",fontWeight:600,flex:1}}>Profilim</span>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
                 </button>
               ) : (
@@ -1446,7 +1197,7 @@ function Navbar({ page, setPage, user, setShowAuth, onLogout, goAnalyze }) {
                     <span style={{width:32,height:32,borderRadius:8,background:"rgba(0,201,167,0.1)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,color:"#00C9A7"}}>
                       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
                     </span>
-                    <span style={{fontSize:14,color:"rgba(255,255,255,0.8)",fontWeight:500,flex:1}}>Kayıt Ol</span>
+                    <span style={{fontSize:14,color:"#00C9A7",fontWeight:500,flex:1}}>Kayıt Ol</span>
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth="2"><polyline points="9 18 15 12 9 6"/></svg>
                   </button>
                 </>
@@ -1464,364 +1215,6 @@ function Navbar({ page, setPage, user, setShowAuth, onLogout, goAnalyze }) {
 }
 
 // ── Hero ──────────────────────────────────────────────────────────────────────
-// ── Blog Verisi ───────────────────────────────────────────────────────────────
-const BLOG_POSTS = [
-  {
-    id:1,
-    slug:"biyolojik-yas-nedir",
-    title:"Biyolojik Yaş Nedir ve Neden Önemlidir?",
-    cat:"Longevity",
-    date:"15 Mart 2025",
-    readMin:5,
-    emoji:"🧬",
-    summary:"Doğum tarihiniz bir sayı söyler, vücudunuz farklı bir hikaye anlatır. Biyolojik yaş neden önemli ve nasıl ölçülür?",
-    content:[
-      {h:"Biyolojik Yaş Nedir?"},
-      {p:"Kronolojik yaş, doğum tarihinizden itibaren geçen süreyi ölçer. Biyolojik yaş ise hücrelerinizin, dokularınızın ve organlarınızın gerçekte ne kadar yaşlı davrandığını gösterir. Aynı kronolojik yaşta iki kişi biyolojik olarak 10 yıl farklı olabilir."},
-      {h:"Neden Önemli?"},
-      {p:"Araştırmalar, biyolojik yaşın kalp hastalığı, diyabet, kanser ve Alzheimer riskiyle doğrudan ilişkili olduğunu göstermektedir. Kronolojik yaşınız değişmez fakat biyolojik yaşınız değişebilir. Bu da iyi haber demektir."},
-      {h:"PhenoAge Algoritması"},
-      {p:"BioScope platformunun kullandığı PhenoAge algoritması, Morgan Levine tarafından 2018 yılında geliştirilmiştir. Albumin, CRP, kreatinin, glukoz dahil 9 rutin kan değerini kullanarak biyolojik yaşı hesaplar. Bu değerlerin tamamı standart bir tam kan sayımında zaten yer alır."},
-      {h:"Biyolojik Yaşımı Nasıl Düşürebilirim?"},
-      {p:"Bilim, biyolojik yaşı değiştirmenin mümkün olduğunu gösteriyor. Düzenli egzersiz, kaliteli uyku, antiinflamatuar beslenme ve stres yönetimi biyolojik yaşı 5 ila 10 yıla kadar geri alabilir. BioScope ile 6 ayda bir test yaparak ilerlemenizi izleyebilirsiniz."}
-    ]
-  },
-  {
-    id:2,
-    slug:"kan-degerleri-rehberi",
-    title:"Kan Tahlili Rehberi: Hangi Değer Ne Anlama Gelir?",
-    cat:"Kan Sağlığı",
-    date:"28 Şubat 2025",
-    readMin:7,
-    emoji:"🩸",
-    summary:"Albumin, CRP, RDW, MCV... Doktorunuz normal dedi ama siz merak ediyorsunuz. İşte biyolojik yaşla ilişkili 9 değerin kılavuzu.",
-    content:[
-      {h:"Kan Tahlili Neden Önemlidir?"},
-      {p:"Her yıl kan tahlili yaptırıyoruz, sonuçlar geliyor, normal yazıyor, kapatıyoruz. Oysa bu değerlerin her biri vücudunuz hakkında çok daha derin bir hikaye anlatıyor."},
-      {h:"Albumin: Karaciğerinizin Rapor Kartı"},
-      {p:"Albumin karaciğerde üretilen bir proteindir. Düşük albumin, kronik inflamasyon, yetersiz beslenme veya karaciğer fonksiyon bozukluğunun işareti olabilir. Optimal aralık 4.2 - 5.0 g/dL arasındadır."},
-      {h:"CRP: Vücudunuzdaki Yangın Alarmı"},
-      {p:"C-reaktif protein inflamasyonun en güçlü göstergelerinden biridir. Kronik düşük dereceli inflamasyon, yani mg/L cinsinden 1 ila 3 arası CRP, kalp hastalığı ve erken yaşlanmayla ilişkilidir. Optimal seviye 1 mg/L altı olmalıdır."},
-      {h:"RDW: Yaşlanmanın Sessiz Göstergesi"},
-      {p:"Red Cell Distribution Width, kırmızı kan hücrelerinin boyut çeşitliliğini ölçer. Yüksek RDW, yüzde 14 üzeri, yetersiz beslenme, oksidatif stres ve biyolojik yaşlanmayla güçlü korelasyon gösterir."},
-      {h:"Glukoz: Metabolik Sağlığınızın Termometresi"},
-      {p:"Açlık kan şekeri 70 - 85 mg/dL arasında optimal kabul edilir. 100 üzeri prediyabet sinyali verir. Kronik yüksek glukoz, glikasyon yoluyla proteinleri ve hücreleri hasara uğratarak biyolojik yaşlanmayı hızlandırır."}
-    ]
-  },
-  {
-    id:3,
-    slug:"longevity-beslenme",
-    title:"Uzun ve Sağlıklı Yaşam İçin Beslenme: Bilim Ne Diyor?",
-    cat:"Longevity",
-    date:"15 Şubat 2025",
-    readMin:6,
-    emoji:"🥗",
-    summary:"100 yaşına kadar sağlıklı yaşayan toplulukların ortak beslenme alışkanlıkları ve bunların biyolojik yaşa etkisi.",
-    content:[
-      {h:"Mavi Bölgeler"},
-      {p:"Okinawa, Sardunya, Loma Linda ve Nikoya... Bu bölgeler Mavi Bölgeler olarak adlandırılır. 100 yaşını aşmış binlerce insanın yaşadığı bu coğrafyaların ortak paydası beslenme alışkanlıklarıdır."},
-      {h:"Antiinflamatuar Beslenme"},
-      {p:"Kronik inflamasyon biyolojik yaşlanmanın en büyük hızlandırıcısıdır. Zeytinyağı, yağlı balık, ceviz, keten tohumu, zerdeçal ve koyu yeşil yapraklı sebzeler inflamasyonu azaltır. Bu besinleri düzenli tüketen kişilerde CRP değerlerinin belirgin biçimde düştüğü gösterilmiştir."},
-      {h:"Aralıklı Oruç"},
-      {p:"16:8 aralıklı oruç protokolü insülin duyarlılığını artırır, CRP düşürür ve otofaji mekanizmasını aktive eder. Otofaji, hücresel çöp toplama sistemidir. Hasar görmüş proteinleri temizler."},
-      {h:"Protein ve Albumin"},
-      {p:"Albumin seviyesini yüksek tutmak için yeterli protein tüketimi kritiktir. Günlük kilogram başına 1.2 - 1.6 gram protein önerilir. Yumurta, baklagiller, yoğurt ve balık en iyi kaynaklar arasındadır."}
-    ]
-  },
-  {
-    id:4,
-    slug:"egzersiz-biyolojik-yas",
-    title:"Egzersiz Biyolojik Yaşı Gerçekten Değiştirir mi?",
-    cat:"Spor",
-    date:"3 Şubat 2025",
-    readMin:5,
-    emoji:"🏃",
-    summary:"Haftada 150 dakika egzersiz biyolojik yaşı 9 yıl geri alabilir mi? Bilimsel kanıtlar ve hangi egzersiz türünün ne kadar etkili olduğu.",
-    content:[
-      {h:"Egzersizin Gücü"},
-      {p:"Spor yapmanın iyi olduğunu biliyoruz fakat ne kadar iyi? Bilimsel veriler artık çok daha net cevaplar veriyor. Düzenli egzersiz yapan kişilerin telomerleri daha uzun, inflamasyon belirteçleri daha düşük ve biyolojik yaşları önemli ölçüde daha genç."},
-      {h:"Aerobik Egzersizin Etkisi"},
-      {p:"Brigham Young Üniversitesi araştırması, haftada 5 gün 30 dakika koşu yapanların biyolojik yaşlarının sedanter akranlarından 9 yıl daha genç olduğunu ortaya koydu. Mekanizma şudur: aerobik egzersiz telomeraz enzimini aktive eder ve telomerlerin kısalmasını yavaşlatır."},
-      {h:"Zone 2 Antrenman"},
-      {p:"Maksimum kalp atış hızının yüzde 60 ila 70 oranında yapılan, yürüyüş ile hafif koşu arası tempo, Zone 2 olarak adlandırılır. Bu yoğunlukta mitokondri kapasitesi artar, yağ yakımı optimale çıkar ve CRP değerleri düşer."},
-      {h:"Direnç Antrenmanı"},
-      {p:"Kas kütlesi biyolojik yaşın kritik bir belirleyicisidir. 40 yaşından sonra yılda yüzde 1 oranında azalan kas kütlesi insülin direncini artırır. Haftada 2 ila 3 gün direnç antrenmanı kas kaybını önler ve glukoz toleransını iyileştirir."}
-    ]
-  },
-  {
-    id:5,
-    slug:"phenoage-nasil-calisir",
-    title:"PhenoAge Algoritması Nasıl Çalışır?",
-    cat:"Bilim",
-    date:"20 Ocak 2025",
-    readMin:8,
-    emoji:"🔬",
-    summary:"Nature dergisinde yayımlanan PhenoAge algoritmasının arkasındaki bilim: 9 biyobelirteç, matematiksel model ve neden diğer yöntemlerden üstün?",
-    content:[
-      {h:"Algoritmanın Doğuşu"},
-      {p:"2018 yılında Yale Üniversitesi araştırmacısı Dr. Morgan Levine ve ekibi, Aging Albany NY dergisinde önemli bir makale yayımladı. 11.000 katılımcının verisiyle geliştirilen PhenoAge algoritması, rutin kan testlerinden biyolojik yaşı hesaplamanın en güvenilir yöntemi oldu."},
-      {h:"9 Biyobelirteç Neden Seçildi?"},
-      {p:"Levine ekibi önce 42 farklı biyobelirteci değerlendirdi. Makine öğrenmesi yöntemleriyle mortalite riski ile en güçlü ilişkiyi gösteren 9 parametreyi belirledi: albumin, alkalen fosfataz, kreatinin, glukoz, CRP, lenfosit yüzdesi, MCV, RDW ve lökosit sayısı."},
-      {h:"Matematiksel Model"},
-      {p:"Model iki aşamalı çalışır. Birinci aşamada 9 belirteç ve kronolojik yaş kullanılarak 10 yıllık mortalite olasılığı hesaplanır. İkinci aşamada bu mortalite değeri genel popülasyonun mortalite eğrisiyle karşılaştırılarak biyolojik yaş skoruna dönüştürülür."},
-      {h:"BioScope Uygulaması"},
-      {p:"BioScope, orijinal Levine 2018 formülasyonunu kullanmaktadır. Prof. Dr. Burcu Barutçuoglu denetiminde Türk laboratuvar standartlarına uyarlanmıştır. Birim dönüşümleri dahil tüm hesaplamalar klinik biyokimya protokollerine uygundur."}
-    ]
-  }
-];
-
-// ── SSS Sayfası ───────────────────────────────────────────────────────────────
-const SSS_DATA = [
-  {
-    cat:"Genel",
-    items:[
-      {
-        q:"BioScope nedir?",
-        a:"BioScope, rutin kan tahlil sonuçlarınızdan biyolojik yaşınızı hesaplayan Türkiye'nin ilk klinik biyokimya platformudur. Prof. Dr. Burcu Barutçuoglu denetiminde geliştirilmiştir."
-      },
-      {
-        q:"Biyolojik yaş nedir, kronolojik yaştan farkı ne?",
-        a:"Kronolojik yaş doğum tarihinizden hesaplanır ve değişmez. Biyolojik yaş ise hücrelerinizin ve organlarınızın gerçekte ne kadar yaşlı davrandığını gösterir. İki kişi aynı kronolojik yaşta olup biyolojik olarak 10 yıl farklı olabilir."
-      },
-      {
-        q:"Sonuçlar ne kadar güvenilir?",
-        a:"BioScope, Yale Üniversitesi'nden Dr. Morgan Levine tarafından geliştirilen ve 11.000 katılımcıyla doğrulanan PhenoAge algoritmasını kullanır. Tüm nedenlere bağlı ölüm riskini kronolojik yaştan daha iyi öngördüğü gösterilmiştir. Bununla birlikte sonuçlar tıbbi tanı yerine geçmez."
-      }
-    ]
-  },
-  {
-    cat:"Analiz ve Kan Değerleri",
-    items:[
-      {
-        q:"Hangi kan değerlerine ihtiyacım var?",
-        a:"Analiz için 9 rutin biyobelirteç gereklidir: Albumin, Kreatinin, Glukoz, Alkalen Fosfataz, CRP, Lökosit (WBC), Lenfosit yüzdesi, MCV ve RDW. Bu değerlerin tamamı standart bir tam kan sayımı ve biyokimya panelinde yer alır."
-      },
-      {
-        q:"Kan tahlilimi nasıl yükleyebilirim?",
-        a:"PDF formatındaki tahlil raporunuzu platforma yükleyebilirsiniz. Yapay zeka değerleri otomatik olarak okur. Alternatif olarak değerleri manuel olarak da girebilirsiniz."
-      },
-      {
-        q:"Hangi laboratuvar formatları destekleniyor?",
-        a:"Türkiye'deki tüm büyük laboratuvar formatları desteklenmektedir. Synlab, Düzen, Medicana, devlet hastanesi ve üniversite hastanesi formatları dahil."
-      },
-      {
-        q:"İlaç kullanıyorum, sonuçlar etkilenir mi?",
-        a:"Evet, bazı ilaçlar kan değerlerini etkiler. Örnegin Roakutan trigliseridi yükseltir, kortikosteroidler glukozu artırır. Analize başlamadan önce ilaç seçim ekranında kullandığınız ilaçları işaretleyin. Yapay zeka yorumunu buna göre düzenler."
-      }
-    ]
-  },
-  {
-    cat:"Ödeme ve Raporlar",
-    items:[
-      {
-        q:"Ücretsiz ne görebiliyorum?",
-        a:"Ücretsiz olarak biyolojik yaş skorunuzu, kronolojik yaşınızla farkını ve 4 temel kan değerinizin durumunu görebilirsiniz. Tam organ sistemi analizi, AI uzman yorumu ve PDF rapor ücretli planlarda yer alır."
-      },
-      {
-        q:"Raporumu indirebilir miyim?",
-        a:"Evet. Analiz sonuç ekranındaki Raporu Indir butonuna basarak HTML formatında raporunuzu indirebilirsiniz. Tarayıcınızdan PDF olarak da kaydedebilirsiniz."
-      },
-      {
-        q:"Ödeme güvenli mi?",
-        a:"Tüm ödemeler iyzico altyapısı üzerinden işlenmektedir. Kart bilgileriniz BioScope sunucularında saklanmaz. 7 gün iade garantisi mevcuttur."
-      }
-    ]
-  },
-  {
-    cat:"Sağlık ve Güvenlik",
-    items:[
-      {
-        q:"Bu bir tıbbi tanı platformu mu?",
-        a:"Hayır. BioScope bir bilgilendirme ve takip platformudur. Sonuçlar tıbbi tanı, tedavi veya ilaç önerisi yerine geçmez. Sağlık kararları için doktorunuza danışınız."
-      },
-      {
-        q:"Ne sıklıkla analiz yapmalıyım?",
-        a:"6 ayda bir analiz yapmanız önerilir. Bu süre, beslenme ve yaşam tarzı değişikliklerinin kan değerlerine yansıması için yeterlidir. Trend takibi özelliği sayesinde ilerlemenizi grafik üzerinde görüntüleyebilirsiniz."
-      },
-      {
-        q:"Verilerim güvende mi?",
-        a:"Kan tahlil verileriniz en hassas kişisel veri kategorisindedir. Şifreli bağlantı üzerinden iletilir, üçüncü taraflarla paylaşılmaz ve yalnızca analiz hesaplaması için kullanılır. Detaylar için Gizlilik Politikamızı inceleyebilirsiniz."
-      }
-    ]
-  }
-];
-
-function SSSPage({ setPage }) {
-  const [openItem, setOpenItem] = useState(null);
-  const [showContact, setShowContact] = useState(false);
-
-  return (
-    <>
-    {showContact && <ContactModal onClose={()=>setShowContact(false)} />}
-    <section style={{minHeight:"100vh",padding:"90px 40px 80px",background:"#04100E"}}>
-      <div style={{maxWidth:760,margin:"0 auto"}}>
-        <button onClick={()=>{setPage("home");window.scrollTo({top:0,behavior:"smooth"});}}
-          style={{display:"inline-flex",alignItems:"center",gap:8,background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:9,color:"rgba(255,255,255,0.75)",cursor:"pointer",fontSize:13,fontWeight:600,padding:"9px 16px",marginBottom:36,transition:"all 0.2s"}}
-          onMouseEnter={e=>{e.currentTarget.style.background="rgba(0,201,167,0.1)";e.currentTarget.style.borderColor="rgba(0,201,167,0.3)";e.currentTarget.style.color="#fff";}}
-          onMouseLeave={e=>{e.currentTarget.style.background="rgba(255,255,255,0.06)";e.currentTarget.style.borderColor="rgba(255,255,255,0.12)";e.currentTarget.style.color="rgba(255,255,255,0.75)";}}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
-          Ana Sayfaya Dön
-        </button>
-
-        <div style={{textAlign:"center",marginBottom:52}}>
-          <div style={{fontSize:11,color:"#00C9A7",fontWeight:700,letterSpacing:"2px",marginBottom:14}}>DESTEK</div>
-          <h1 style={{fontFamily:"Georgia,serif",fontSize:"clamp(28px,5vw,42px)",color:"#fff",fontWeight:700,letterSpacing:"-1px",marginBottom:14}}>
-            Sıkça Sorulan Sorular
-          </h1>
-          <p style={{fontSize:15,color:"rgba(255,255,255,0.45)",maxWidth:480,margin:"0 auto"}}>
-            Aradığınızı bulamazsanız iletişim formumuzdan bize yazabilirsiniz.
-          </p>
-        </div>
-
-        <div style={{display:"flex",flexDirection:"column",gap:32}}>
-          {SSS_DATA.map((group,gi)=>(
-            <div key={gi}>
-              <div style={{fontSize:11,color:"#00C9A7",fontWeight:700,letterSpacing:"1.5px",marginBottom:12,paddingBottom:8,borderBottom:"1px solid rgba(0,201,167,0.15)"}}>
-                {group.cat.toUpperCase()}
-              </div>
-              <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                {group.items.map((item,ii)=>{
-                  const key = gi+"-"+ii;
-                  const isOpen = openItem === key;
-                  return (
-                    <div key={ii}
-                      style={{background:"rgba(255,255,255,0.03)",border:"1px solid "+(isOpen?"rgba(0,201,167,0.2)":"rgba(255,255,255,0.07)"),borderRadius:12,overflow:"hidden",transition:"border-color 0.2s"}}>
-                      <button onClick={()=>setOpenItem(isOpen?null:key)}
-                        style={{width:"100%",padding:"16px 20px",background:"none",border:"none",cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",gap:16,textAlign:"left"}}>
-                        <span style={{fontSize:14,fontWeight:600,color:isOpen?"#00C9A7":"rgba(255,255,255,0.85)",flex:1,lineHeight:1.5}}>{item.q}</span>
-                        <span style={{color:"#00C9A7",fontSize:18,flexShrink:0,transition:"transform 0.3s",display:"inline-block",transform:isOpen?"rotate(45deg)":"rotate(0deg)"}}>+</span>
-                      </button>
-                      {isOpen && (
-                        <div style={{padding:"0 20px 18px"}}>
-                          <div style={{height:1,background:"rgba(255,255,255,0.06)",marginBottom:14}} />
-                          <p style={{fontSize:14,color:"rgba(255,255,255,0.6)",lineHeight:1.8,margin:0}}>{item.a}</p>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <div style={{marginTop:52,padding:24,background:"rgba(0,201,167,0.06)",border:"1px solid rgba(0,201,167,0.15)",borderRadius:14,textAlign:"center"}}>
-          <div style={{fontSize:14,fontWeight:600,color:"#fff",marginBottom:6}}>Sorunuzu bulamadınız mı?</div>
-          <div style={{fontSize:13,color:"rgba(255,255,255,0.45)",marginBottom:16}}>Ekibimiz 24 saat içinde yanıt verir.</div>
-          <button onClick={()=>setShowContact(true)}
-            style={{padding:"10px 24px",borderRadius:9,border:"none",background:"linear-gradient(135deg,#00C9A7,#0080FF)",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer"}}>
-            İletişime Geç
-          </button>
-        </div>
-      </div>
-    </section>
-    </>
-  );
-}
-
-// ── Blog Sayfası ───────────────────────────────────────────────────────────────
-function BlogPage({ setPage, setActivePost }) {
-  return (
-    <section style={{minHeight:"100vh",padding:"90px 40px 80px",background:"#04100E"}}>
-      <div style={{maxWidth:860,margin:"0 auto"}}>
-        <button onClick={()=>{setPage("home");window.scrollTo({top:0,behavior:"smooth"});}}
-          style={{display:"inline-flex",alignItems:"center",gap:8,background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:9,color:"rgba(255,255,255,0.75)",cursor:"pointer",fontSize:13,fontWeight:600,padding:"9px 16px",marginBottom:36,transition:"all 0.2s"}}
-          onMouseEnter={e=>{e.currentTarget.style.background="rgba(0,201,167,0.1)";e.currentTarget.style.borderColor="rgba(0,201,167,0.3)";e.currentTarget.style.color="#fff";}}
-          onMouseLeave={e=>{e.currentTarget.style.background="rgba(255,255,255,0.06)";e.currentTarget.style.borderColor="rgba(255,255,255,0.12)";e.currentTarget.style.color="rgba(255,255,255,0.75)";}}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
-          Ana Sayfaya Dön
-        </button>
-        <div style={{textAlign:"center",marginBottom:52}}>
-          <div style={{fontSize:11,color:"#00C9A7",fontWeight:700,letterSpacing:"2px",marginBottom:14}}>BLOG</div>
-          <h1 style={{fontFamily:"Georgia,serif",fontSize:"clamp(30px,5vw,44px)",color:"#fff",fontWeight:700,letterSpacing:"-1px",marginBottom:14}}>
-            Sağlık ve Longevity
-          </h1>
-          <p style={{fontSize:15,color:"rgba(255,255,255,0.45)",maxWidth:480,margin:"0 auto"}}>
-            Bilimsel içerikler, kan değerlerinizi anlamanın yolları ve uzun yaşam rehberi.
-          </p>
-        </div>
-        <div style={{display:"flex",flexDirection:"column",gap:16}}>
-          {BLOG_POSTS.map(post=>(
-            <div key={post.id}
-              onClick={()=>{setActivePost(post);setPage("blogpost");window.scrollTo({top:0,behavior:"smooth"});}}
-              style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:14,padding:"22px 24px",cursor:"pointer",transition:"all 0.2s",display:"flex",gap:18,alignItems:"flex-start"}}
-              onMouseEnter={e=>{e.currentTarget.style.background="rgba(255,255,255,0.05)";e.currentTarget.style.borderColor="rgba(0,201,167,0.2)";e.currentTarget.style.transform="translateX(4px)";}}
-              onMouseLeave={e=>{e.currentTarget.style.background="rgba(255,255,255,0.03)";e.currentTarget.style.borderColor="rgba(255,255,255,0.07)";e.currentTarget.style.transform="translateX(0)";}}>
-              <div style={{width:52,height:52,borderRadius:12,background:"rgba(0,201,167,0.08)",border:"1px solid rgba(0,201,167,0.15)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,flexShrink:0}}>
-                {post.emoji}
-              </div>
-              <div style={{flex:1}}>
-                <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:7}}>
-                  <span style={{fontSize:11,fontWeight:700,color:"#00C9A7",background:"rgba(0,201,167,0.1)",padding:"2px 8px",borderRadius:4}}>{post.cat}</span>
-                  <span style={{fontSize:11,color:"rgba(255,255,255,0.3)"}}>{post.date}</span>
-                  <span style={{fontSize:11,color:"rgba(255,255,255,0.3)"}}>· {post.readMin} dk</span>
-                </div>
-                <h2 style={{fontFamily:"Georgia,serif",fontSize:19,color:"#fff",fontWeight:700,marginBottom:7,lineHeight:1.3}}>{post.title}</h2>
-                <p style={{fontSize:13,color:"rgba(255,255,255,0.48)",lineHeight:1.7,margin:0}}>{post.summary}</p>
-              </div>
-              <span style={{fontSize:20,color:"rgba(255,255,255,0.18)",flexShrink:0,alignSelf:"center"}}>›</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-// ── Blog Yazı Sayfası ──────────────────────────────────────────────────────────
-function BlogPostPage({ post, setPage }) {
-  if (!post) { setPage("blog"); return null; }
-  return (
-    <section style={{minHeight:"100vh",padding:"90px 40px 80px",background:"#04100E"}}>
-      <div style={{maxWidth:700,margin:"0 auto"}}>
-        <button onClick={()=>{setPage("blog");window.scrollTo({top:0,behavior:"smooth"});}}
-          style={{display:"inline-flex",alignItems:"center",gap:8,background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.12)",borderRadius:9,color:"rgba(255,255,255,0.75)",cursor:"pointer",fontSize:13,fontWeight:600,padding:"9px 16px",marginBottom:36,transition:"all 0.2s"}}
-          onMouseEnter={e=>{e.currentTarget.style.background="rgba(0,201,167,0.1)";e.currentTarget.style.borderColor="rgba(0,201,167,0.3)";e.currentTarget.style.color="#fff";}}
-          onMouseLeave={e=>{e.currentTarget.style.background="rgba(255,255,255,0.06)";e.currentTarget.style.borderColor="rgba(255,255,255,0.12)";e.currentTarget.style.color="rgba(255,255,255,0.75)";}}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="15 18 9 12 15 6"/></svg>
-          Blog'a Dön
-        </button>
-        <div style={{marginBottom:36}}>
-          <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:14}}>
-            <span style={{fontSize:11,fontWeight:700,color:"#00C9A7",background:"rgba(0,201,167,0.1)",padding:"3px 10px",borderRadius:4}}>{post.cat}</span>
-            <span style={{fontSize:12,color:"rgba(255,255,255,0.3)"}}>{post.date}</span>
-            <span style={{fontSize:12,color:"rgba(255,255,255,0.3)"}}>· {post.readMin} dk okuma</span>
-          </div>
-          <h1 style={{fontFamily:"Georgia,serif",fontSize:"clamp(24px,4vw,36px)",color:"#fff",fontWeight:700,lineHeight:1.25,marginBottom:18,letterSpacing:"-0.5px"}}>
-            {post.title}
-          </h1>
-          <p style={{fontSize:15,color:"rgba(255,255,255,0.48)",lineHeight:1.8,borderLeft:"3px solid #00C9A7",paddingLeft:16,fontStyle:"italic"}}>
-            {post.summary}
-          </p>
-        </div>
-        <div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",background:"rgba(0,201,167,0.06)",borderRadius:10,border:"1px solid rgba(0,201,167,0.15)",marginBottom:36}}>
-          <div style={{width:36,height:36,borderRadius:9,background:"linear-gradient(135deg,#00C9A7,#0080FF)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:700,color:"#fff",flexShrink:0}}>B</div>
-          <div>
-            <div style={{fontSize:13,fontWeight:700,color:"#fff"}}>Prof. Dr. Burcu Barutçuoglu</div>
-            <div style={{fontSize:11,color:"rgba(255,255,255,0.38)"}}>Klinik Biyokimya Uzmani · Ege Üniversitesi</div>
-          </div>
-        </div>
-        <div style={{display:"flex",flexDirection:"column",gap:18}}>
-          {post.content.map((block,i)=>{
-            if (block.h) return <h2 key={i} style={{fontFamily:"Georgia,serif",fontSize:21,color:"#fff",fontWeight:700,marginTop:8}}>{block.h}</h2>;
-            if (block.p) return <p key={i} style={{fontSize:15,color:"rgba(255,255,255,0.62)",lineHeight:1.9,margin:0}}>{block.p}</p>;
-            return null;
-          })}
-        </div>
-        <div style={{marginTop:52,padding:26,background:"linear-gradient(135deg,rgba(0,201,167,0.1),rgba(0,128,255,0.07))",border:"1px solid rgba(0,201,167,0.2)",borderRadius:14,textAlign:"center"}}>
-          <div style={{fontSize:22,marginBottom:10}}>🧬</div>
-          <h3 style={{fontFamily:"Georgia,serif",fontSize:20,color:"#fff",fontWeight:700,marginBottom:8}}>Biyolojik Yaşınızı Öğrenin</h3>
-          <p style={{fontSize:13,color:"rgba(255,255,255,0.45)",marginBottom:18}}>Kan tahlil sonuçlarınızı yükleyin, dakikalar içinde raporunuz hazır.</p>
-          <button onClick={()=>{setPage("analyze");window.scrollTo({top:0,behavior:"smooth"});}}
-            style={{padding:"11px 26px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#00C9A7,#0080FF)",color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer"}}>
-            Ücretsiz Analiz Başlat
-          </button>
-        </div>
-      </div>
-    </section>
-  );
-}
-
 function Hero({ setPage, goAnalyze }) {
   const [count, setCount] = useState(0);
   useEffect(() => { const timer = setInterval(() => setCount(c => c < 2847 ? c+41 : 2847), 16); return () => clearInterval(timer); }, []);
@@ -1869,105 +1262,191 @@ function Hero({ setPage, goAnalyze }) {
 
 // ── How / Features / Pricing (kısa) ──────────────────────────────────────────
 function How() {
+  const [step, setStep] = useState(0);
+  const canvasRef = useRef(null);
+  const sectionRef = useRef(null);
+  const tickerRef = useRef(0);
+  const stepRef = useRef(0);
+  const rafRef = useRef(null);
+
+  const STEPS = [
+    {badge:"ADIM 01",title:"Kan tahlil raporunuzu yukleyin",desc:"PDF yukleyin ya da degerleri kendiniz girin. Tum birimler otomatik donusturulur.",details:["PDF otomatik okunur","Manuel giris desteklenir","Birim donusumu otomatik"],color:"#00C9A7"},
+    {badge:"ADIM 02",title:"AI degerleri analiz eder",desc:"9 kritik biyobelirtec taranir. Her biri optimal araliklarla karsilastirilir.",details:["Glukoz, HbA1c, CRP...","Albumin, Kreatinin, MCV...","WBC, Lenfosit, RDW"],color:"#0080FF"},
+    {badge:"ADIM 03",title:"PhenoAge hesaplanir",desc:"Levine 2018 algoritmasi biyolojik yasinizi hesaplar. Kronolojik yasla kiyaslanir.",details:["Bilimsel algoritma","Populasyon karsilastirmasi","Sistem bazli skor"],color:"#00C9A7"},
+    {badge:"ADIM 04",title:"Kisisel rapor ve AI yorumu",desc:"Uzman AI yorumu, aksiyon plani ve PDF raporunuz hazir.",details:["AI uzman degerlendirmesi","Kisisel aksiyon plani","PDF rapor indirme"],color:"#0080FF"}
+  ];
+
+  const goStep = (s) => {
+    const c = Math.max(0, Math.min(3, s));
+    stepRef.current = c; tickerRef.current = 0; setStep(c);
+  };
+
+  // Scroll: section 400vh yükseklikte, sticky içerik → scroll pozisyonu adımı belirler
+  useEffect(() => {
+    const onScroll = () => {
+      const section = sectionRef.current;
+      if (!section) return;
+      const rect = section.getBoundingClientRect();
+      const scrolled = Math.max(0, -rect.top);
+      const scrollable = section.offsetHeight - window.innerHeight;
+      const raw = scrollable > 0 ? scrolled / scrollable : 0;
+      const s = Math.min(3, Math.floor(raw * 4));
+      if (s !== stepRef.current) {
+        stepRef.current = s;
+        tickerRef.current = 0;
+        setStep(s);
+      }
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // Canvas animasyon
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    let W, H;
+    const resize = () => {
+      const r = canvas.parentElement.getBoundingClientRect();
+      W = canvas.width = r.width; H = canvas.height = r.height;
+    };
+    resize();
+    const ro = new ResizeObserver(resize);
+    ro.observe(canvas.parentElement);
+
+    const BG="#04100E", TEAL="#00C9A7", BLUE="#0080FF";
+
+    function scene0(t) {
+      ctx.fillStyle=BG; ctx.fillRect(0,0,W,H);
+      const cx=W/2, cy=H/2, pulse=Math.sin(t*0.04)*0.08+0.92;
+      const pw=110, ph=145, px=cx-pw/2, py=cy-ph/2-24;
+      for(let i=3;i>0;i--){ctx.beginPath();ctx.roundRect(px-i*10,py-i*10,pw+i*20,ph+i*20,16);ctx.fillStyle=`rgba(0,201,167,${0.04*i*pulse})`;ctx.fill();}
+      ctx.beginPath();ctx.roundRect(px,py,pw,ph,10);ctx.fillStyle="rgba(255,255,255,0.05)";ctx.strokeStyle="rgba(0,201,167,0.3)";ctx.lineWidth=1;ctx.fill();ctx.stroke();
+      ctx.beginPath();ctx.moveTo(px+pw-22,py);ctx.lineTo(px+pw,py+22);ctx.lineTo(px+pw-22,py+22);ctx.closePath();ctx.fillStyle="rgba(0,201,167,0.2)";ctx.fill();
+      [[16,26,76],[16,42,58],[16,58,70],[16,74,46],[16,90,62],[16,108,42]].forEach(([x,y,w])=>{
+        ctx.beginPath();ctx.roundRect(px+x,py+y,w,5,2);ctx.fillStyle=y<55?"rgba(0,201,167,0.35)":"rgba(255,255,255,0.07)";ctx.fill();
+      });
+      ctx.beginPath();ctx.roundRect(px+12,py+ph-32,38,20,4);ctx.fillStyle=TEAL;ctx.fill();
+      ctx.fillStyle="#04100E";ctx.font="bold 9px sans-serif";ctx.textAlign="center";ctx.fillText("PDF",px+31,py+ph-17);
+      ctx.fillStyle="rgba(255,255,255,0.3)";ctx.font="13px sans-serif";ctx.textAlign="center";ctx.fillText("Tahlil PDF dosyanizi yukleyin",cx,cy+ph/2+44);
+    }
+
+    function scene1(t) {
+      ctx.fillStyle=BG;ctx.fillRect(0,0,W,H);
+      const cols=3, cardW=Math.min(W*0.26,96), cardH=58, gap=12;
+      const markers=[{k:"Glukoz",v:"94",ok:true},{k:"CRP",v:"3.8",ok:false},{k:"Albumin",v:"4.5",ok:true},{k:"WBC",v:"6.2",ok:true},{k:"RDW",v:"14.1",ok:false},{k:"MCV",v:"87",ok:true},{k:"Lenfosit",v:"28",ok:true},{k:"ALP",v:"72",ok:true},{k:"Kreatinin",v:"0.9",ok:true}];
+      const rows=3,totalW=cols*(cardW+gap)-gap,totalH=rows*(cardH+gap)-gap;
+      const startX=W/2-totalW/2,startY=H/2-totalH/2;
+      const scanY=startY+(totalH*((Math.sin(t*0.025)+1)/2));
+      const g=ctx.createLinearGradient(0,scanY-24,0,scanY+24);
+      g.addColorStop(0,"transparent");g.addColorStop(0.5,"rgba(0,201,167,0.1)");g.addColorStop(1,"transparent");
+      ctx.fillStyle=g;ctx.fillRect(startX-12,scanY-24,totalW+24,48);
+      markers.forEach((m,i)=>{
+        const col=i%cols,row=Math.floor(i/cols),x=startX+col*(cardW+gap),y=startY+row*(cardH+gap);
+        const alpha=Math.min(1,Math.max(0,(t-i*8)/15));
+        ctx.beginPath();ctx.roundRect(x,y,cardW,cardH,7);ctx.fillStyle=`rgba(255,255,255,${alpha*0.03})`;ctx.fill();
+        ctx.strokeStyle=m.ok?`rgba(0,201,167,${alpha*0.4})`:`rgba(239,83,80,${alpha*0.5})`;ctx.lineWidth=1;ctx.stroke();
+        if(alpha>0.3){
+          ctx.beginPath();ctx.arc(x+12,y+13,4,0,Math.PI*2);ctx.fillStyle=m.ok?`rgba(0,201,167,${alpha})`:`rgba(239,83,80,${alpha})`;ctx.fill();
+          ctx.fillStyle=`rgba(255,255,255,${alpha*0.45})`;ctx.font="10px sans-serif";ctx.textAlign="left";ctx.fillText(m.k,x+22,y+16);
+          ctx.fillStyle=m.ok?`rgba(0,201,167,${alpha})`:`rgba(239,83,80,${alpha})`;ctx.font="bold 16px Georgia";ctx.fillText(m.v,x+10,y+44);
+        }
+      });
+    }
+
+    function scene2(t) {
+      ctx.fillStyle=BG;ctx.fillRect(0,0,W,H);
+      const cx=W/2,cy=H/2,progress=Math.min(1,t/80),bioAge=38.4,chronoAge=45,maxR=Math.min(W,H)*0.33;
+      ctx.beginPath();ctx.arc(cx,cy-10,maxR,0,Math.PI*2);ctx.fillStyle="rgba(0,201,167,0.03)";ctx.fill();
+      ctx.strokeStyle="rgba(255,255,255,0.06)";ctx.lineWidth=1;ctx.stroke();
+      ctx.beginPath();ctx.arc(cx,cy-10,maxR-10,0,Math.PI*2);ctx.strokeStyle="rgba(255,255,255,0.06)";ctx.lineWidth=10;ctx.stroke();
+      const ag=ctx.createLinearGradient(cx-maxR,cy-10,cx+maxR,cy-10);ag.addColorStop(0,TEAL);ag.addColorStop(1,BLUE);
+      ctx.beginPath();ctx.arc(cx,cy-10,maxR-10,-Math.PI/2,-Math.PI/2+Math.PI*2*progress);ctx.strokeStyle=ag;ctx.lineWidth=10;ctx.lineCap="round";ctx.stroke();
+      ctx.fillStyle="#fff";ctx.font=`bold ${Math.min(W*0.14,62)}px Georgia`;ctx.textAlign="center";ctx.fillText((bioAge*progress).toFixed(1),cx,cy+10);
+      ctx.fillStyle="rgba(255,255,255,0.38)";ctx.font="11px sans-serif";ctx.fillText("BIYOLOJIK YASINIZ",cx,cy-10-maxR*0.55);
+      if(progress>0.7){
+        const bA=(progress-0.7)/0.3;
+        ctx.beginPath();ctx.roundRect(cx-64,cy+maxR*0.3,128,28,14);ctx.fillStyle=`rgba(0,201,167,${bA*0.15})`;ctx.fill();ctx.strokeStyle=`rgba(0,201,167,${bA*0.4})`;ctx.lineWidth=1;ctx.stroke();
+        ctx.fillStyle=`rgba(0,201,167,${bA})`;ctx.font="bold 12px sans-serif";ctx.fillText(`-${(chronoAge-bioAge).toFixed(1)} yil - Mukemmel`,cx,cy+maxR*0.3+18);
+      }
+      ctx.lineCap="butt";
+    }
+
+    function scene3(t) {
+      ctx.fillStyle=BG;ctx.fillRect(0,0,W,H);
+      const cx=W/2,cy=H/2;
+      const systems=[{n:"Metabolik",s:88,c:TEAL},{n:"Karaciger",s:91,c:TEAL},{n:"Bobrek",s:72,c:"rgba(255,183,77,0.9)"},{n:"Inflamasyon",s:55,c:"rgba(239,83,80,0.9)"},{n:"Hematoloji",s:82,c:TEAL}];
+      const barW=W*0.62,barH=7,barGap=36,startY=cy-systems.length*barGap/2+10,startX=cx-barW/2;
+      systems.forEach((sys,i)=>{
+        const y=startY+i*barGap,prog=Math.min(1,Math.max(0,(t-i*12)/40));
+        ctx.fillStyle="rgba(255,255,255,0.4)";ctx.font="11px sans-serif";ctx.textAlign="left";ctx.fillText(sys.n,startX,y-5);
+        ctx.beginPath();ctx.roundRect(startX,y,barW,barH,4);ctx.fillStyle="rgba(255,255,255,0.06)";ctx.fill();
+        ctx.beginPath();ctx.roundRect(startX,y,barW*(sys.s/100)*prog,barH,4);ctx.fillStyle=sys.c;ctx.fill();
+        if(prog>0.5){ctx.fillStyle=sys.c;ctx.font="bold 11px sans-serif";ctx.textAlign="right";ctx.fillText(Math.round(sys.s*prog),startX+barW+26,y+7);}
+      });
+      const boxY=startY+systems.length*barGap+22;
+      if(t>60){
+        const bA=Math.min(1,(t-60)/20);
+        ctx.beginPath();ctx.roundRect(startX,boxY,barW+26,40,8);ctx.fillStyle=`rgba(0,201,167,${bA*0.08})`;ctx.fill();ctx.strokeStyle=`rgba(0,201,167,${bA*0.25})`;ctx.lineWidth=1;ctx.stroke();
+        ctx.fillStyle=`rgba(0,201,167,${bA})`;ctx.font="bold 11px sans-serif";ctx.textAlign="left";ctx.fillText("AI Uzman Yorumu hazir",startX+12,boxY+15);
+        ctx.fillStyle=`rgba(255,255,255,${bA*0.3})`;ctx.font="10px sans-serif";ctx.fillText("Metabolik ve hematoloji mukemmel - CRP dikkat",startX+12,boxY+30);
+      }
+    }
+
+    const scenes=[scene0,scene1,scene2,scene3];
+    function render(){tickerRef.current++;scenes[stepRef.current](tickerRef.current);rafRef.current=requestAnimationFrame(render);}
+    rafRef.current=requestAnimationFrame(render);
+    return ()=>{cancelAnimationFrame(rafRef.current);ro.disconnect();};
+  }, []);
+
   return (
-    <section id="how" className="by-section" style={{padding:"100px 40px",borderTop:"1px solid rgba(255,255,255,0.07)"}}>
-      <div style={{maxWidth:1100,margin:"0 auto"}}>
-        <div style={{textAlign:"center",marginBottom:56}}>
+    <section id="how" ref={sectionRef} style={{height:"400vh",borderTop:"1px solid rgba(255,255,255,0.07)"}}>
+      <style>{`@keyframes _bsSlideIn{from{opacity:0;transform:translateX(40px);}to{opacity:1;transform:translateX(0);}}`}</style>
+      <div style={{position:"sticky",top:0,height:"100vh",overflow:"hidden",display:"flex",flexDirection:"column",justifyContent:"center",background:"#04100E"}}>
+      <div style={{maxWidth:1200,margin:"0 auto",padding:"0 40px",width:"100%"}}>
+        <div style={{textAlign:"center",marginBottom:52}}>
           <div style={{fontSize:11,color:"#00C9A7",fontWeight:700,letterSpacing:"2px",marginBottom:14}}>NASIL ÇALIŞIR</div>
           <h2 style={{fontFamily:"Georgia,serif",fontSize:40,color:"#fff",fontWeight:700,letterSpacing:"-1px"}}>4 adımda biyolojik yaşınız</h2>
         </div>
-        <div className="by-grid-4" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:18,alignItems:"stretch"}}>
-          {[
-            {n:"01",title:"PDF Yükle veya Gir",desc:"Tahlil PDF'nizi yükleyin ya da değerleri kendiniz girin.",icon:"📋"},
-            {n:"02",title:"AI Okur",desc:"Yapay zeka değerleri otomatik çıkarır ve birimleri dönüştürür.",icon:"🤖"},
-            {n:"03",title:"Algoritma Hesaplar",desc:"Levine PhenoAge (2018) 9 biyobelirteci analiz eder.",icon:"🔬"},
-            {n:"04",title:"AI ile Soru Sor",desc:"Sonuçlarınız hakkında AI asistana soru sorun.",icon:"💬"},
-          ].map((s,i) => (
-            <div key={i} style={{position:"relative"}}>
-              
-              <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:16,padding:22,position:"relative",zIndex:1,height:"100%",boxSizing:"border-box"}}>
-                <div style={{width:46,height:46,borderRadius:12,background:"rgba(0,201,167,0.08)",border:"1px solid rgba(0,201,167,0.2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,marginBottom:14,flexShrink:0}}><span style={{fontSize:22,lineHeight:1,display:"block"}}>{s.icon}</span></div>
-                <div style={{fontSize:10,color:"#00C9A7",fontWeight:700,letterSpacing:"1px",marginBottom:7}}>ADIM {s.n}</div>
-                <h3 style={{fontSize:15,fontWeight:700,color:"#fff",marginBottom:7}}>{s.title}</h3>
-                <p style={{fontSize:13,color:"rgba(255,255,255,0.38)",lineHeight:1.6,margin:0}}>{s.desc}</p>
+
+        <div style={{display:"flex",borderRadius:20,overflow:"hidden",border:"1px solid rgba(255,255,255,0.07)",minHeight:520,background:"rgba(255,255,255,0.02)"}}>
+
+          {/* Sol metin */}
+          <div style={{width:"40%",position:"relative",borderRight:"1px solid rgba(255,255,255,0.06)"}}>
+            {STEPS.map((s,i)=>(
+              <div key={step===i?`s${i}-a`:`s${i}`} style={{position:"absolute",top:0,left:0,right:0,bottom:0,padding:"52px 40px",display:"flex",flexDirection:"column",justifyContent:"center",opacity:step===i?1:0,animation:step===i?"_bsSlideIn 0.45s ease forwards":"none",pointerEvents:step===i?"auto":"none"}}>
+                <div style={{fontSize:10,fontWeight:700,letterSpacing:"1.5px",color:"#00C9A7",background:"rgba(0,201,167,0.08)",border:"1px solid rgba(0,201,167,0.2)",padding:"5px 14px",borderRadius:99,display:"inline-block",marginBottom:18,width:"fit-content",fontFamily:"sans-serif"}}>{s.badge}</div>
+                <h3 style={{fontFamily:"Georgia,serif",fontSize:26,fontWeight:700,color:"#fff",lineHeight:1.25,marginBottom:14,letterSpacing:"-0.5px"}}>{s.title}</h3>
+                <p style={{fontSize:14,color:"rgba(255,255,255,0.45)",lineHeight:1.85,marginBottom:24,fontFamily:"sans-serif"}}>{s.desc}</p>
+                <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  {s.details.map((d,j)=>(
+                    <div key={j} style={{display:"flex",alignItems:"center",gap:12,fontSize:13,color:"rgba(255,255,255,0.38)",fontFamily:"sans-serif"}}>
+                      <div style={{width:6,height:6,borderRadius:"50%",background:s.color,flexShrink:0,boxShadow:`0 0 6px ${s.color}`}} />{d}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Adım göstergesi - altta */}
+                <div style={{display:"flex",gap:6,marginTop:32}}>
+                  {STEPS.map((_,k)=>(
+                    <div key={k} onClick={()=>goStep(k)} style={{height:3,flex:1,borderRadius:99,cursor:"pointer",transition:"background 0.3s",background:step===k?"#00C9A7":"rgba(255,255,255,0.1)"}} />
+                  ))}
+                </div>
               </div>
+            ))}
+          </div>
+
+          {/* Sağ canvas */}
+          <div style={{flex:1,background:"#04100E",position:"relative",overflow:"hidden"}}>
+            <canvas ref={canvasRef} style={{position:"absolute",inset:0,width:"100%",height:"100%"}} />
+            {/* Progress bar - sol kenar */}
+            <div style={{position:"absolute",left:0,top:0,bottom:0,width:2,background:"rgba(255,255,255,0.04)"}}>
+              <div style={{position:"absolute",top:0,left:0,width:2,background:"linear-gradient(180deg,#00C9A7,#0080FF)",height:`${(step/3)*100}%`,transition:"height 0.5s ease"}} />
             </div>
-          ))}
+          </div>
         </div>
       </div>
-    </section>
-  );
-}
-
-// ── PhenoAge Nedir? ───────────────────────────────────────────────────────────
-function PhenoAgeNedir() {
-  const biomarkers = [
-    {n:1, name:"Albümin",        desc:"Karaciğer fonksiyonu, beslenme durumu",  unit:"g/dL"},
-    {n:2, name:"Kreatinin",      desc:"Böbrek fonksiyonu",                       unit:"mg/dL"},
-    {n:3, name:"Glukoz",         desc:"Metabolik sağlık",                        unit:"mg/dL"},
-    {n:4, name:"Alkalen Fosfataz",desc:"Karaciğer ve kemik sağlığı",            unit:"U/L"},
-    {n:5, name:"hs-CRP",         desc:"Sistemik inflamasyon",                   unit:"mg/L"},
-    {n:6, name:"Lökosit (WBC)",  desc:"Bağışıklık aktivasyonu",                unit:"10³/µL"},
-    {n:7, name:"Lenfosit %",     desc:"Bağışıklık dengesi",                     unit:"%"},
-    {n:8, name:"MCV",            desc:"Kırmızı kan hücresi boyutu",             unit:"fL"},
-    {n:9, name:"RDW",            desc:"Kırmızı kan hücresi varyasyonu",         unit:"%"},
-  ];
-
-  return (
-    <section id="phenoage" style={{padding:"100px 40px",borderTop:"1px solid rgba(255,255,255,0.07)"}}>
-      <div style={{maxWidth:1100,margin:"0 auto"}}>
-        <div style={{textAlign:"center",marginBottom:60}}>
-          <div style={{display:"inline-block",padding:"4px 16px",borderRadius:99,border:"1px solid rgba(0,201,167,0.4)",fontSize:11,color:"#00C9A7",fontWeight:700,letterSpacing:"1.5px",marginBottom:20}}>BİLİM</div>
-          <h2 style={{fontFamily:"Georgia,serif",fontSize:"clamp(32px,5vw,52px)",color:"#fff",fontWeight:700,letterSpacing:"-1px"}}>PhenoAge Nedir?</h2>
-        </div>
-
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:60,alignItems:"start"}}>
-          {/* Sol: Açıklama */}
-          <div>
-            <p style={{fontSize:15,color:"rgba(255,255,255,0.65)",lineHeight:1.9,marginBottom:20}}>
-              PhenoAge (Fenotipik Yaş), 2018 yılında Yale Tıp Okulu'nda biyolog Morgan Levine tarafından geliştirilen bir algoritmadır. Biyolojik yaşınızı — sağlık ve ölüm riski açısından vücudunuzun gerçekte nasıl "davrandığını" — tahmin etmek için 9 kan biyobelirteci ile kronolojik yaşı kullanır.
-            </p>
-            <p style={{fontSize:15,color:"rgba(255,255,255,0.65)",lineHeight:1.9,marginBottom:28}}>
-              Algoritma, NHANES III çalışmasındaki 11.000'den fazla yetişkinden elde edilen veriler üzerinde eğitildi. Tüm nedenlere bağlı ölüm, kardiyovasküler hastalık, diyabet ve kanser riskini tek başına kronolojik yaştan daha iyi öngörür.
-            </p>
-            <p style={{fontSize:13,color:"rgba(255,255,255,0.3)",lineHeight:1.7,fontStyle:"italic",marginBottom:28,paddingLeft:14,borderLeft:"2px solid rgba(0,201,167,0.3)"}}>
-              Referans: Levine ME ve ark. "Yaşam süresi ve sağlık süresi için bir epigenetik yaşlanma biyobelirteci." Aging (2018).
-            </p>
-            <div style={{display:"flex",flexDirection:"column",gap:12}}>
-              <a href="#how" onClick={e=>{e.preventDefault();document.getElementById("how")?.scrollIntoView({behavior:"smooth"});}}
-                style={{display:"inline-flex",alignItems:"center",gap:8,color:"#00C9A7",fontSize:14,fontWeight:600,textDecoration:"none",transition:"gap 0.2s"}}
-                onMouseEnter={e=>e.currentTarget.style.gap="12px"}
-                onMouseLeave={e=>e.currentTarget.style.gap="8px"}>
-                BioScope nasıl çalışır? →
-              </a>
-
-            </div>
-          </div>
-
-          {/* Sağ: 9 Biyobelirteç */}
-          <div>
-            <div style={{fontSize:16,fontWeight:700,color:"#fff",marginBottom:16}}>9 Biyobelirteç</div>
-            <div style={{display:"flex",flexDirection:"column",gap:8}}>
-              {biomarkers.map(b=>(
-                <div key={b.n}
-                  style={{display:"flex",alignItems:"center",gap:14,padding:"12px 16px",background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:10,transition:"all 0.2s"}}
-                  onMouseEnter={e=>{e.currentTarget.style.background="rgba(0,201,167,0.06)";e.currentTarget.style.borderColor="rgba(0,201,167,0.2)";}}
-                  onMouseLeave={e=>{e.currentTarget.style.background="rgba(255,255,255,0.03)";e.currentTarget.style.borderColor="rgba(255,255,255,0.07)";}}>
-                  <div style={{width:28,height:28,borderRadius:7,background:"rgba(0,201,167,0.12)",border:"1px solid rgba(0,201,167,0.2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:"#00C9A7",flexShrink:0}}>
-                    {b.n}
-                  </div>
-                  <div style={{flex:1}}>
-                    <div style={{fontSize:14,fontWeight:600,color:"#fff"}}>{b.name}</div>
-                    <div style={{fontSize:11,color:"rgba(255,255,255,0.38)",marginTop:2}}>{b.desc}</div>
-                  </div>
-                  <div style={{fontSize:11,color:"rgba(255,255,255,0.28)",background:"rgba(255,255,255,0.05)",padding:"3px 8px",borderRadius:5,flexShrink:0}}>
-                    {b.unit}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
       </div>
     </section>
   );
@@ -2407,238 +1886,7 @@ function PaymentModal({ onClose, result }) {
 }
 
 // ── Sonuç Ekranı ──────────────────────────────────────────────────────────────
-// ── Aksiyon Planı ─────────────────────────────────────────────────────────────
-// ── Popülasyon Karşılaştırma Grafiği ──────────────────────────────────────────
-function PopulasyonGrafigi({ result }) {
-  // Yaş grubuna göre popülasyon biyolojik yaş dağılımı (PhenoAge literatürü baz alındı)
-  // Ortalama: kronolojik yaş + 0.5, std: ~6 yıl
-  const mean = result.chronoAge + 0.5;
-  const std  = 6.5;
-
-  // Normal dağılım fonksiyonu
-  const normalPDF = (x, mu, sigma) => {
-    return Math.exp(-0.5 * ((x - mu) / sigma) ** 2) / (sigma * Math.sqrt(2 * Math.PI));
-  };
-
-  // Grafik verisi: kullanıcı yaşı ± 25 yıl aralığında
-  const minX = Math.max(15, result.chronoAge - 22);
-  const maxX = Math.min(100, result.chronoAge + 22);
-  const data = [];
-  for (let x = minX; x <= maxX; x += 0.5) {
-    const y = normalPDF(x, mean, std);
-    data.push({
-      age: Math.round(x * 10) / 10,
-      pop: Math.round(y * 10000) / 100,
-      // Renkli alan: kullanıcının solunda mı sağında mı
-      below: x <= result.bioAge ? Math.round(y * 10000) / 100 : 0,
-    });
-  }
-
-  // Kullanıcı popülasyonun kaçıncı yüzdeliğinde?
-  const zScore = (result.bioAge - mean) / std;
-  // Yaklaşık percentile hesabı (normal dağılım CDF approximation)
-  const erf = (x) => {
-    const t = 1 / (1 + 0.3275911 * Math.abs(x));
-    const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
-    return x >= 0 ? y : -y;
-  };
-  const percentile = Math.round((1 + erf(zScore / Math.sqrt(2))) / 2 * 100);
-
-  const diffColor = result.diff <= -3 ? "#00C9A7" : result.diff <= 3 ? "#FFB74D" : "#EF5350";
-  const diffLabel = result.diff <= -3
-    ? `Yaşınızdaki insanların %${100 - percentile}'inden biyolojik olarak daha gençsiniz 🏆`
-    : result.diff <= 3
-    ? `Yaşınızdaki insanların ortalamasındasınız 👍`
-    : `Yaşınızdaki insanların %${percentile}'inin biyolojik yaşı sizden düşük ⚠️`;
-
-  const CustomTooltip = ({ active, payload }) => {
-    if (!active || !payload?.length) return null;
-    return (
-      <div style={{background:"rgba(4,16,14,0.95)",border:"1px solid rgba(0,201,167,0.2)",borderRadius:8,padding:"8px 12px",fontSize:12,color:"#fff"}}>
-        <div>Biyolojik Yaş: <strong>{payload[0]?.payload?.age}</strong></div>
-      </div>
-    );
-  };
-
-  return (
-    <div style={{marginBottom:16,background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:14,padding:"20px 20px 12px"}}>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16}}>
-        <div>
-          <div style={{fontSize:15,fontWeight:700,color:"#fff",marginBottom:4}}>📊 Popülasyon Karşılaştırması</div>
-          <div style={{fontSize:12,color:"rgba(255,255,255,0.45)"}}>Kronolojik yaşınız {result.chronoAge} olan kişilerle karşılaştırma</div>
-        </div>
-        <div style={{textAlign:"right",flexShrink:0,marginLeft:16}}>
-          <div style={{fontFamily:"Georgia,serif",fontSize:28,fontWeight:700,color:diffColor}}>{percentile}.</div>
-          <div style={{fontSize:10,color:"rgba(255,255,255,0.38)"}}>yüzdelik</div>
-        </div>
-      </div>
-
-      <ResponsiveContainer width="100%" height={160}>
-        <AreaChart data={data} margin={{top:20,right:10,left:-20,bottom:0}}>
-          <defs>
-            <linearGradient id="popGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%"  stopColor="rgba(255,255,255,0.15)" stopOpacity={0.8}/>
-              <stop offset="95%" stopColor="rgba(255,255,255,0.03)"  stopOpacity={0}/>
-            </linearGradient>
-            <linearGradient id="userGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%"  stopColor={diffColor} stopOpacity={0.6}/>
-              <stop offset="95%" stopColor={diffColor} stopOpacity={0.05}/>
-            </linearGradient>
-          </defs>
-          <XAxis dataKey="age" tick={{fill:"rgba(255,255,255,0.35)",fontSize:10}} tickLine={false} axisLine={{stroke:"rgba(255,255,255,0.07)"}}
-            tickFormatter={v=>v%5===0?v:""} />
-          <YAxis hide />
-          <Tooltip content={<CustomTooltip />} />
-          {/* Tüm popülasyon */}
-          <Area type="monotone" dataKey="pop" stroke="rgba(255,255,255,0.15)" strokeWidth={1}
-            fill="url(#popGrad)" dot={false} />
-          {/* Kullanıcının solundaki alan */}
-          <Area type="monotone" dataKey="below" stroke={diffColor} strokeWidth={0}
-            fill="url(#userGrad)" dot={false} />
-          {/* Ortalama çizgisi */}
-          <ReferenceLine x={Math.round(mean)} stroke="rgba(255,255,255,0.25)" strokeWidth={1} strokeDasharray="3 3"
-            label={{value:`Ort: ${Math.round(mean)}`,position:"insideTopRight",fill:"rgba(255,255,255,0.4)",fontSize:10}} />
-          {/* Kullanıcı çizgisi + nokta */}
-          <ReferenceLine x={result.bioAge} stroke={diffColor} strokeWidth={2} strokeDasharray="4 2"
-            label={{value:`● Sen: ${result.bioAge}`,position:"top",fill:diffColor,fontSize:11,fontWeight:700}} />
-        </AreaChart>
-      </ResponsiveContainer>
-
-      <div style={{marginTop:10,padding:"10px 14px",background:`${diffColor}10`,borderRadius:8,border:`1px solid ${diffColor}25`,fontSize:12,color:"rgba(255,255,255,0.7)",lineHeight:1.6,marginBottom:8}}>
-        {diffLabel}
-      </div>
-      <div style={{fontSize:10,color:"rgba(255,255,255,0.25)",lineHeight:1.6}}>
-        * Dağılım, Levine vd. (2018) NHANES III/IV verisinden türetilen parametreler kullanılarak hesaplanmıştır: ortalama = kronolojik yaş, SD = 6.5 yıl, n ≈ 11.432. Bireysel sonuçlar farklılık gösterebilir.
-      </div>
-    </div>
-  );
-}
-
-function AksiyonPlani({ result }) {
-  const [open, setOpen] = useState(false);
-
-  // Sonuçlara göre kişisel öneriler üret
-  const plans = [];
-  const v = result.vals;
-
-  // CRP — inflamasyon
-  if (v.crp !== null) {
-    if (v.crp > 3) {
-      plans.push({ cat:"İnflamasyon", col:"#EF5350", bg:"rgba(239,83,80,0.08)", icon:"🔥",
-        title:"CRP değeriniz yüksek — inflamasyonu düşürün",
-        items:["Her gün 2 yemek kaşığı zeytinyağı tüketin","Haftada 3 kez somon veya sardalye yiyin","Şeker ve işlenmiş gıdaları 4 hafta boyunca kesin","Zerdeçal + karabiber kombinasyonunu yemeklere ekleyin"] });
-    } else if (v.crp <= 1) {
-      plans.push({ cat:"İnflamasyon", col:"#00C9A7", bg:"rgba(0,201,167,0.08)", icon:"✅",
-        title:"CRP değeriniz mükemmel — sürdürün",
-        items:["Mevcut beslenme düzeninizi koruyun","Antiinflamatuar gıdaları hayatınızdan çıkarmayın","6 ayda bir kontrol ettirin"] });
-    }
-  }
-
-  // Glukoz — metabolik
-  if (v.glucose !== null) {
-    if (v.glucose > 100) {
-      plans.push({ cat:"Metabolik", col:"#FFB74D", bg:"rgba(255,183,77,0.08)", icon:"⚡",
-        title:"Kan şekeriniz yüksek sınırda — metabolizmanızı iyileştirin",
-        items:["Karbonhidrat tüketimini öğün başına 30g altında tutun","16:8 aralıklı oruç protokolü deneyin","Her öğünden sonra 10 dk yürüyüş yapın","Beyaz ekmek, pirinç ve makarnayı tam tahılla değiştirin"] });
-    } else if (v.glucose <= 85) {
-      plans.push({ cat:"Metabolik", col:"#00C9A7", bg:"rgba(0,201,167,0.08)", icon:"✅",
-        title:"Glukoz değeriniz optimal — devam edin",
-        items:["Aralıklı oruç uygulamanız varsa sürdürün","Kan şekerini dengeleyen beslenmeye devam edin"] });
-    }
-  }
-
-  // RDW — hücresel yaşlanma
-  if (v.rdw !== null) {
-    if (v.rdw > 14) {
-      plans.push({ cat:"Hematoloji", col:"#CE93D8", bg:"rgba(206,147,216,0.08)", icon:"🔴",
-        title:"RDW değeriniz yüksek — hücresel stres var",
-        items:["B12 ve folat açısından kan tahlili yaptırın","Kırmızı et, yumurta ve koyu yeşil sebzeleri artırın","D vitamini seviyenizi kontrol ettirin","Alkol tüketimini minimuma indirin"] });
-    }
-  }
-
-  // Albumin — karaciğer & protein
-  if (v.albumin !== null) {
-    if (v.albumin < 4.0) {
-      plans.push({ cat:"Karaciğer & Protein", col:"#FFB74D", bg:"rgba(255,183,77,0.08)", icon:"⚠️",
-        title:"Albumin düşük — protein alımını artırın",
-        items:["Günlük kg başına en az 1.5g protein tüketin","Her öğünde yumurta, baklagil veya et olsun","Whey protein takviyesi değerlendirin","Karaciğer sağlığı için alkol tüketimini bırakın"] });
-    }
-  }
-
-  // Egzersiz — genel diff'e göre
-  if (result.diff > 3) {
-    plans.push({ cat:"Egzersiz", col:"#4FC3F7", bg:"rgba(79,195,247,0.08)", icon:"🏃",
-      title:"Biyolojik yaşınız yüksek — egzersiz önceliğiniz olsun",
-      items:["Haftada 5 gün 30 dk Zone 2 egzersizi yapın (rahat tempo yürüyüş/bisiklet)","Haftada 2 kez direnç antrenmanı ekleyin","Oturma sürelerinizi kısaltın, her saat ayağa kalkın","Egzersiz günlüğü tutun, hedef belirleyin"] });
-  } else if (result.diff <= -3) {
-    plans.push({ cat:"Egzersiz", col:"#00C9A7", bg:"rgba(0,201,167,0.08)", icon:"🏆",
-      title:"Harika! Aktif yaşamınızı sürdürün",
-      items:["Mevcut egzersiz rutininizi koruyun","Zone 2 antrenmanına ağırlık verin","Yılda bir kez tam check-up yaptırın"] });
-  }
-
-  // Uyku & stres — genel
-  plans.push({ cat:"Uyku & Stres", col:"#81C784", bg:"rgba(129,199,132,0.08)", icon:"😴",
-    title:"Uyku kalitesi biyolojik yaşı doğrudan etkiler",
-    items:["Her gece aynı saatte uyuyup kalkın","Yatmadan 1 saat önce ekranları kapatın","Yatak odası sıcaklığını 18-20°C tutun","Günde 10 dk meditasyon veya nefes egzersizi yapın"] });
-
-  // 6 aylık takip
-  plans.push({ cat:"Takip Planı", col:"#00C9A7", bg:"rgba(0,201,167,0.08)", icon:"📅",
-    title:"6 ay sonra tekrar test edin",
-    items:[
-      "Bu önerileri uygulayın, 6 ay sonra yeniden analiz yaptırın",
-      "Hedef: Biyolojik yaşı " + (result.diff > 0 ? Math.ceil(result.diff) + " yıl düşürmek" : "daha da iyileştirmek"),
-      "BioScope üzerinden analiz geçmişinizi takip edin",
-    ] });
-
-  return (
-    <div style={{marginBottom:16}}>
-      <button onClick={()=>setOpen(o=>!o)}
-        style={{width:"100%",padding:"16px 22px",background:"rgba(0,201,167,0.06)",border:"1px solid rgba(0,201,167,0.2)",borderRadius:14,display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",transition:"all 0.2s"}}
-        onMouseEnter={e=>e.currentTarget.style.background="rgba(0,201,167,0.1)"}
-        onMouseLeave={e=>e.currentTarget.style.background="rgba(0,201,167,0.06)"}>
-        <div style={{display:"flex",alignItems:"center",gap:12}}>
-          <div style={{width:36,height:36,borderRadius:9,background:"linear-gradient(135deg,#00C9A7,#0080FF)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>🎯</div>
-          <div style={{textAlign:"left"}}>
-            <div style={{fontFamily:"Georgia,serif",fontSize:16,fontWeight:700,color:"#fff"}}>Kişisel Aksiyon Planınız</div>
-            <div style={{fontSize:12,color:"rgba(255,255,255,0.45)",marginTop:2}}>{plans.length} öneri · Sonuçlarınıza özel hazırlandı</div>
-          </div>
-        </div>
-        <span style={{color:"#00C9A7",fontSize:20,transition:"transform 0.3s",display:"inline-block",transform:open?"rotate(180deg)":"rotate(0deg)"}}>⌄</span>
-      </button>
-
-      {open && (
-        <div style={{marginTop:8,display:"flex",flexDirection:"column",gap:10}}>
-          {plans.map((p,i)=>(
-            <div key={i} style={{background:p.bg,border:`1px solid ${p.col}30`,borderRadius:12,padding:"16px 20px"}}>
-              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
-                <span style={{fontSize:20}}>{p.icon}</span>
-                <div>
-                  <div style={{fontSize:11,color:p.col,fontWeight:700,letterSpacing:"0.5px",marginBottom:2}}>{p.cat.toUpperCase()}</div>
-                  <div style={{fontSize:14,fontWeight:700,color:"#fff"}}>{p.title}</div>
-                </div>
-              </div>
-              <div style={{display:"flex",flexDirection:"column",gap:7}}>
-                {p.items.map((item,j)=>(
-                  <div key={j} style={{display:"flex",alignItems:"flex-start",gap:10}}>
-                    <div style={{width:18,height:18,borderRadius:"50%",background:p.col,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,color:"#fff",fontWeight:700,flexShrink:0,marginTop:1}}>✓</div>
-                    <span style={{fontSize:13,color:"rgba(255,255,255,0.75)",lineHeight:1.6}}>{item}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-
-          <div style={{padding:"12px 16px",background:"rgba(255,255,255,0.03)",borderRadius:10,border:"1px solid rgba(255,255,255,0.06)",fontSize:11,color:"rgba(255,255,255,0.3)",textAlign:"center",lineHeight:1.7}}>
-            Bu öneriler PhenoAge algoritması sonuçlarına göre hazırlanmıştır.<br/>Tıbbi tavsiye yerine geçmez — doktorunuza danışın.
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function ResultView({ result, aiText, aiLoading, onReset, onSave, user }) {
-  const meds = result.meds || [];
   const [showAsk,     setShowAsk]     = useState(false);
   const [showRef,     setShowRef]     = useState(false);
   const [showPayment, setShowPayment] = useState(false);
@@ -2651,356 +1899,6 @@ function ResultView({ result, aiText, aiLoading, onReset, onSave, user }) {
     .join(", ");
 
   const handleSave = () => { onSave(result); setSaved(true); };
-
-  const downloadPDF = () => {
-    const diffText = result.diff<=-3?"Gençsiniz! Biyolojik yaşınız kronolojik yaşınızdan daha düşük.":result.diff<=3?"Normal aralıkta. Biyolojik yaşınız yaşınıza uygun.":"Dikkat! Biyolojik yaşınız kronolojik yaşınızdan yüksek.";
-    const sysScores = SYSTEM_KEYS.map(([name,keys])=>{
-      const sc=keys.map(k=>getScore(k,result.vals[k])).filter(s=>s!==null);
-      if(!sc.length) return null;
-      const avg=Math.round(sc.reduce((a,b)=>a+b,0)/sc.length);
-      return {name,avg};
-    }).filter(Boolean);
-
-    const printWindow = window.open('','_blank');
-    printWindow.document.write(`
-      <!DOCTYPE html><html><head>
-      <meta charset="utf-8">
-      <title>BioScope Analiz Raporu</title>
-      <style>
-        * { margin:0; padding:0; box-sizing:border-box; }
-        body { font-family: Georgia, serif; background:#fff; color:#111; padding:40px; max-width:800px; margin:0 auto; }
-        .header { display:flex; justify-content:space-between; align-items:center; margin-bottom:32px; padding-bottom:20px; border-bottom:2px solid #00C9A7; }
-        .logo { font-size:24px; font-weight:700; color:#04100E; }
-        .logo span { color:#00C9A7; }
-        .date { font-size:12px; color:#666; font-family:sans-serif; }
-        .score-box { background:linear-gradient(135deg,#e8faf6,#e8f4ff); border:1px solid #00C9A7; border-radius:16px; padding:32px; text-align:center; margin-bottom:24px; }
-        .score-label { font-size:11px; color:#666; letter-spacing:2px; font-family:sans-serif; margin-bottom:8px; }
-        .score-num { font-size:72px; font-weight:700; color:#04100E; line-height:1; margin-bottom:8px; }
-        .score-sub { font-size:13px; color:#666; font-family:sans-serif; }
-        .badge { display:inline-block; margin-top:12px; padding:6px 18px; border-radius:99px; font-size:14px; font-weight:700; font-family:sans-serif; background:${result.diff<=-3?"#e8faf6":result.diff<=3?"#fff8e1":"#fdecea"}; color:${result.diff<=-3?"#00856A":result.diff<=3?"#F57F17":"#C62828"}; border:1px solid ${result.diff<=-3?"#00C9A7":result.diff<=3?"#FFB300":"#EF5350"}; }
-        .section-title { font-size:16px; font-weight:700; color:#04100E; margin:24px 0 12px; padding-bottom:6px; border-bottom:1px solid #eee; }
-        .sys-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:24px; }
-        .sys-card { border:1px solid #eee; border-radius:10px; padding:14px; }
-        .sys-name { font-size:11px; color:#666; font-family:sans-serif; font-weight:700; margin-bottom:6px; }
-        .sys-score { font-size:24px; font-weight:700; font-family:Georgia; color:${result.diff<=-3?"#00856A":result.diff<=3?"#F57F17":"#C62828"}; }
-        .bar { height:4px; background:#eee; border-radius:99px; margin:6px 0; overflow:hidden; }
-        .bar-fill { height:100%; border-radius:99px; }
-        .vals-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; margin-bottom:24px; }
-        .val-row { display:flex; justify-content:space-between; padding:8px 12px; background:#f8f9fa; border-radius:7px; font-family:sans-serif; font-size:13px; }
-        .val-name { color:#555; }
-        .val-num { font-weight:700; color:#111; }
-        .ai-box { background:#f0faf7; border:1px solid #00C9A7; border-radius:12px; padding:20px; margin-bottom:24px; }
-        .ai-title { font-size:13px; font-weight:700; color:#00856A; font-family:sans-serif; margin-bottom:8px; }
-        .ai-text { font-size:13px; color:#333; line-height:1.8; font-family:sans-serif; }
-        .footer { margin-top:32px; padding-top:16px; border-top:1px solid #eee; font-size:11px; color:#999; font-family:sans-serif; text-align:center; }
-        @media print { body { padding:20px; } }
-      </style>
-      </head><body>
-      <div class="header">
-        <div class="logo">Bio<span>Scope</span></div>
-        <div class="date">Analiz Tarihi: ${new Date().toLocaleDateString('tr-TR', {day:'numeric',month:'long',year:'numeric'})}</div>
-      </div>
-
-      <div class="score-box">
-        <div class="score-label">BİYOLOJİK YAŞINIZ</div>
-        <div class="score-num">${result.bioAge}</div>
-        <div class="score-sub">Kronolojik yaşınız: <strong>${result.chronoAge}</strong></div>
-        <div class="badge">${result.diff>0?"+"+result.diff:result.diff} yıl — ${diffText}</div>
-      </div>
-
-      <div class="section-title">🔬 Sistem Bazlı Analiz</div>
-      <div class="sys-grid">
-        ${sysScores.map(s=>{
-          const col=s.avg>=80?"#00856A":s.avg>=60?"#F57F17":"#C62828";
-          const bg=s.avg>=80?"#00C9A7":s.avg>=60?"#FFB300":"#EF5350";
-          return `<div class="sys-card">
-            <div class="sys-name">${s.name}</div>
-            <div class="sys-score" style="color:${col}">${s.avg}</div>
-            <div class="bar"><div class="bar-fill" style="width:${s.avg}%;background:${bg}"></div></div>
-          </div>`;
-        }).join('')}
-      </div>
-
-      <div class="section-title">🩸 Kan Değerleriniz</div>
-      <div class="vals-grid">
-        ${BIOMARKERS.filter(b=>b.key!=="age"&&result.vals[b.key]!=null).map(b=>`
-          <div class="val-row">
-            <span class="val-name">${b.label}</span>
-            <span class="val-num">${result.vals[b.key]} ${b.unit}</span>
-          </div>
-        `).join('')}
-      </div>
-
-      ${aiText ? `
-      <div class="section-title">✨ AI Uzman Yorumu</div>
-      <div class="ai-box">
-        <div class="ai-title">Prof. Dr. Burcu Barutçuoğlu — Klinik Biyokimya Uzmanı</div>
-        <div class="ai-text">${aiText}</div>
-      </div>` : ''}
-
-      <div class="footer">
-        Bu rapor BioScope platformu (bioscope.com.tr) tarafından oluşturulmuştur.<br>
-        Levine PhenoAge algoritması kullanılmıştır (Aging Albany NY, 2018).<br>
-        Bu rapor tıbbi tanı yerine geçmez. Sağlık kararları için doktorunuza danışın.
-      </div>
-      </body></html>
-    `);
-    printWindow.document.close();
-    printWindow.focus();
-    setTimeout(()=>{ printWindow.print(); }, 500);
-  };
-
-  const downloadPDFBlob = () => {
-    const diffColor = result.diff<=-3?"#00856A":result.diff<=3?"#D97706":"#C62828";
-    const diffBg    = result.diff<=-3?"#ecfdf5":result.diff<=3?"#fffbeb":"#fef2f2";
-    const diffBorder= result.diff<=-3?"#00C9A7":result.diff<=3?"#F59E0B":"#EF4444";
-    const diffLabel = result.diff<=-3?"Mükemmel — Yaşınızdan Daha Gençsiniz":result.diff<=3?"Normal — Yaşınıza Uygun":"Dikkat — Biyolojik Yaşınız Yüksek";
-    const diffIcon  = result.diff<=-3?"🏆":result.diff<=3?"✅":"⚠️";
-
-    const sysScores = SYSTEM_KEYS.map(([name,keys])=>{
-      const sc=keys.map(k=>getScore(k,result.vals[k])).filter(s=>s!==null);
-      if(!sc.length) return null;
-      const avg=Math.round(sc.reduce((a,b)=>a+b,0)/sc.length);
-      const col=avg>=80?"#00856A":avg>=60?"#D97706":"#C62828";
-      const bg =avg>=80?"#00C9A7":avg>=60?"#F59E0B":"#EF4444";
-      const status=avg>=80?"İyi":avg>=60?"Orta":"Dikkat";
-      const tip=avg>=80?"Bu sistem sağlıklı görünüyor.":avg>=60?"Takip edilmesi önerilir.":"Bir uzmana danışmanızı öneririz.";
-      return {name,avg,col,bg,status,tip};
-    }).filter(Boolean);
-
-    const valRows = BIOMARKERS.filter(b=>b.key!=="age"&&result.vals[b.key]!=null).map(b=>{
-      const score=getScore(b.key,result.vals[b.key]);
-      const sc=score>=80?"#00856A":score>=60?"#D97706":score!==null?"#C62828":"#888";
-      const sl=score>=80?"İyi":score>=60?"Orta":score!==null?"Yüksek/Düşük":"—";
-      return {label:b.label,val:result.vals[b.key],unit:b.unit,sc,sl};
-    });
-
-    const html = `<!DOCTYPE html>
-<html lang="tr"><head>
-<meta charset="utf-8">
-<title>BioScope — Biyolojik Yaş Raporu</title>
-<style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-  *{margin:0;padding:0;box-sizing:border-box;}
-  body{font-family:'Inter',sans-serif;background:#f9fafb;color:#111827;font-size:14px;}
-  .page{max-width:800px;margin:0 auto;background:#fff;min-height:100vh;}
-
-  /* ── HEADER ── */
-  .header{background:linear-gradient(135deg,#04100E 0%,#0a2420 100%);padding:28px 40px;display:flex;justify-content:space-between;align-items:center;}
-  .logo{font-family:Georgia,serif;font-size:26px;font-weight:700;color:#fff;letter-spacing:-0.5px;}
-  .logo span{color:#00C9A7;}
-  .header-right{text-align:right;}
-  .header-right .label{font-size:10px;color:rgba(255,255,255,0.45);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:3px;}
-  .header-right .val{font-size:13px;color:rgba(255,255,255,0.8);}
-
-  /* ── HERO SCORE ── */
-  .hero{padding:32px 40px;background:linear-gradient(135deg,#f0fdf9,#eff6ff);border-bottom:1px solid #e5e7eb;display:flex;align-items:center;gap:32px;}
-  .score-circle{width:140px;height:140px;border-radius:50%;background:#fff;border:4px solid ${diffBorder};display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 4px 24px rgba(0,0,0,0.08);}
-  .score-big{font-family:Georgia,serif;font-size:52px;font-weight:700;color:#111827;line-height:1;}
-  .score-unit{font-size:11px;color:#6b7280;margin-top:2px;letter-spacing:0.5px;}
-  .hero-info{flex:1;}
-  .hero-title{font-family:Georgia,serif;font-size:22px;font-weight:700;color:#111827;margin-bottom:6px;}
-  .hero-sub{font-size:13px;color:#6b7280;margin-bottom:14px;line-height:1.6;}
-  .diff-badge{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:99px;font-size:13px;font-weight:600;background:${diffBg};color:${diffColor};border:1px solid ${diffBorder};}
-  .chrono{display:inline-block;margin-left:12px;font-size:12px;color:#6b7280;background:#f3f4f6;padding:6px 12px;border-radius:8px;}
-
-  /* ── SECTIONS ── */
-  .body{padding:32px 40px;}
-  .section{margin-bottom:32px;}
-  .section-header{display:flex;align-items:center;gap:8px;margin-bottom:16px;padding-bottom:10px;border-bottom:2px solid #f3f4f6;}
-  .section-icon{width:32px;height:32px;border-radius:8px;background:#ecfdf5;display:flex;align-items:center;justify-content:center;font-size:16px;}
-  .section-title{font-size:15px;font-weight:700;color:#111827;}
-  .section-subtitle{font-size:11px;color:#9ca3af;margin-left:auto;}
-
-  /* ── SYS CARDS ── */
-  .sys-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;}
-  .sys-card{border:1px solid #e5e7eb;border-radius:12px;padding:16px;position:relative;overflow:hidden;}
-  .sys-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--c);}
-  .sys-card-name{font-size:11px;color:#6b7280;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;margin-bottom:6px;}
-  .sys-card-score{font-family:Georgia,serif;font-size:32px;font-weight:700;margin-bottom:6px;}
-  .sys-bar{height:5px;background:#f3f4f6;border-radius:99px;overflow:hidden;margin-bottom:8px;}
-  .sys-bar-fill{height:100%;border-radius:99px;}
-  .sys-status{display:inline-block;font-size:10px;font-weight:600;padding:2px 8px;border-radius:4px;}
-  .sys-tip{font-size:11px;color:#9ca3af;margin-top:6px;line-height:1.5;}
-
-  /* ── VAL TABLE ── */
-  .val-table{width:100%;border-collapse:collapse;}
-  .val-table th{font-size:10px;color:#9ca3af;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;padding:8px 12px;text-align:left;background:#f9fafb;border-bottom:1px solid #e5e7eb;}
-  .val-table td{padding:10px 12px;border-bottom:1px solid #f3f4f6;font-size:13px;}
-  .val-table tr:last-child td{border-bottom:none;}
-  .val-table tr:hover td{background:#f9fafb;}
-  .status-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;}
-
-  /* ── AI BOX ── */
-  .ai-box{background:linear-gradient(135deg,#f0fdf9,#eff6ff);border:1px solid #a7f3d0;border-radius:12px;padding:24px;}
-  .ai-header{display:flex;align-items:center;gap:10px;margin-bottom:14px;}
-  .ai-avatar{width:36px;height:36px;border-radius:9px;background:linear-gradient(135deg,#00C9A7,#0080FF);display:flex;align-items:center;justify-content:center;font-size:16px;color:#fff;font-weight:700;font-family:Georgia;}
-  .ai-name{font-size:13px;font-weight:700;color:#111827;}
-  .ai-role{font-size:11px;color:#6b7280;}
-  .ai-text{font-size:13px;color:#374151;line-height:1.9;white-space:pre-wrap;}
-
-  /* ── INFO BOX ── */
-  .info-box{background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:16px 20px;margin-bottom:24px;display:flex;gap:12px;align-items:flex-start;}
-  .info-icon{font-size:18px;flex-shrink:0;}
-  .info-text{font-size:12px;color:#92400e;line-height:1.7;}
-  .info-text strong{color:#78350f;}
-
-  /* ── FOOTER ── */
-  .footer{background:#f9fafb;border-top:1px solid #e5e7eb;padding:20px 40px;display:flex;justify-content:space-between;align-items:center;}
-  .footer-logo{font-family:Georgia,serif;font-size:14px;font-weight:700;color:#6b7280;}
-  .footer-logo span{color:#00C9A7;}
-  .footer-text{font-size:11px;color:#9ca3af;text-align:right;line-height:1.6;}
-
-  @media print{body{background:#fff;}.page{box-shadow:none;}}
-</style>
-</head><body>
-<div class="page">
-
-  <!-- HEADER -->
-  <div class="header">
-    <div class="logo">Bio<span>Scope</span></div>
-    <div class="header-right">
-      <div class="label">Analiz Tarihi</div>
-      <div class="val">${new Date().toLocaleDateString('tr-TR',{day:'numeric',month:'long',year:'numeric'})}</div>
-    </div>
-  </div>
-
-  <!-- HERO SCORE -->
-  <div class="hero">
-    <div class="score-circle">
-      <div class="score-big">${result.bioAge}</div>
-      <div class="score-unit">BİYOLOJİK YAŞ</div>
-    </div>
-    <div class="hero-info">
-      <div class="hero-title">Biyolojik Yaş Analiz Raporu</div>
-      <div class="hero-sub">Bu rapor, kan tahlil değerleriniz kullanılarak Levine PhenoAge (2018) algoritmasıyla hesaplanmıştır.</div>
-      <div>
-        <span class="diff-badge">${diffIcon} ${result.diff>0?"+"+result.diff:result.diff} yıl — ${diffLabel}</span>
-        <span class="chrono">Kronolojik yaş: <strong>${result.chronoAge}</strong></span>
-      </div>
-    </div>
-  </div>
-
-  <div class="body">
-
-    <!-- BİLGİLENDİRME -->
-    <div class="info-box">
-      <div class="info-icon">💡</div>
-      <div class="info-text">
-        <strong>Biyolojik yaş nedir?</strong> Kronolojik yaşınız doğum tarihinizden hesaplanır. Biyolojik yaşınız ise hücrelerinizin ve organlarınızın gerçekte ne kadar "yaşlı" davrandığını gösterir.
-        Biyolojik yaşınız kronolojik yaşınızdan düşükse vücudunuz daha genç, yüksekse daha hızlı yaşlandığına işaret eder.
-        <strong>Düzenli egzersiz, kaliteli uyku ve antiinflamatuar beslenme ile biyolojik yaşınızı değiştirebilirsiniz.</strong>
-      </div>
-    </div>
-
-    <!-- SİSTEM ANALİZİ -->
-    <div class="section">
-      <div class="section-header">
-        <div class="section-icon">🔬</div>
-        <div class="section-title">Organ Sistemi Skorları</div>
-        <div class="section-subtitle">100 üzerinden / yüksek = daha iyi</div>
-      </div>
-      <div class="sys-grid">
-        ${sysScores.map(s=>`
-        <div class="sys-card" style="--c:${s.bg}">
-          <div class="sys-card-name">${s.name}</div>
-          <div class="sys-card-score" style="color:${s.col}">${s.avg}</div>
-          <div class="sys-bar"><div class="sys-bar-fill" style="width:${s.avg}%;background:${s.bg}"></div></div>
-          <span class="sys-status" style="background:${s.bg}22;color:${s.col}">${s.status}</span>
-          <div class="sys-tip">${s.tip}</div>
-        </div>`).join('')}
-      </div>
-    </div>
-
-    <!-- KAN DEĞERLERİ -->
-    <div class="section">
-      <div class="section-header">
-        <div class="section-icon">🩸</div>
-        <div class="section-title">Kan Değerleriniz</div>
-        <div class="section-subtitle">PhenoAge algoritmasında kullanılan değerler</div>
-      </div>
-      <table class="val-table">
-        <thead><tr>
-          <th>Biyobelirteç</th>
-          <th>Değeriniz</th>
-          <th>Birim</th>
-          <th>Durum</th>
-        </tr></thead>
-        <tbody>
-          ${valRows.map(r=>`<tr>
-            <td style="font-weight:500">${r.label}</td>
-            <td style="font-family:Georgia,serif;font-size:15px;font-weight:700">${r.val}</td>
-            <td style="color:#9ca3af">${r.unit}</td>
-            <td><span class="status-dot" style="background:${r.sc}"></span><span style="color:${r.sc};font-weight:600">${r.sl}</span></td>
-          </tr>`).join('')}
-        </tbody>
-      </table>
-    </div>
-
-    <!-- AI YORUM -->
-    ${aiText?`
-    <div class="section">
-      <div class="section-header">
-        <div class="section-icon">✨</div>
-        <div class="section-title">Uzman Yorumu</div>
-        <div class="section-subtitle">AI destekli klinik değerlendirme</div>
-      </div>
-      <div class="ai-box">
-        <div class="ai-header">
-          <div class="ai-avatar">B</div>
-          <div>
-            <div class="ai-name">Prof. Dr. Burcu Barutçuoğlu</div>
-            <div class="ai-role">Klinik Biyokimya Uzmanı · Ege Üniversitesi Tıp Fakültesi</div>
-          </div>
-        </div>
-        <div class="ai-text">${aiText}</div>
-      </div>
-    </div>`:''}
-
-    <!-- NE YAPABİLİRSİNİZ -->
-    <div class="section">
-      <div class="section-header">
-        <div class="section-icon">🎯</div>
-        <div class="section-title">Biyolojik Yaşınızı Nasıl İyileştirebilirsiniz?</div>
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;">
-        ${[
-          {icon:"🏃",title:"Düzenli Egzersiz",desc:"Haftada 150 dk orta yoğunluklu egzersiz biyolojik yaşı 5-9 yıl geri alabilir."},
-          {icon:"🥗",title:"Antiinflamatuar Beslenme",desc:"Zeytinyağı, yağlı balık, ceviz ve koyu yeşil sebzeler CRP değerini düşürür."},
-          {icon:"😴",title:"Kaliteli Uyku",desc:"Her gece 7-9 saat uyku hücresel onarım süreçlerini aktive eder."},
-          {icon:"🔄",title:"6 Ayda Bir Tekrar Test",desc:"Değişiminizi takip edin. BioScope ile ilerlemenizi ölçün."},
-        ].map(item=>`<div style="border:1px solid #e5e7eb;border-radius:10px;padding:14px;display:flex;gap:10px;align-items:flex-start;">
-          <div style="font-size:22px;flex-shrink:0">${item.icon}</div>
-          <div><div style="font-size:13px;font-weight:600;color:#111827;margin-bottom:4px">${item.title}</div>
-          <div style="font-size:12px;color:#6b7280;line-height:1.6">${item.desc}</div></div>
-        </div>`).join('')}
-      </div>
-    </div>
-
-  </div><!-- /body -->
-
-  <!-- FOOTER -->
-  <div class="footer">
-    <div class="footer-logo">Bio<span>Scope</span> · bioscope.com.tr</div>
-    <div class="footer-text">
-      Levine vd. (2018), Aging Albany NY · Bu rapor tıbbi tanı yerine geçmez<br>
-      Sağlık kararları için doktorunuza danışın · © 2025 BioScope
-    </div>
-  </div>
-
-</div>
-</body></html>`;
-
-    const blob = new Blob([html], {type:'text/html'});
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = `BioScope_Rapor_${new Date().toLocaleDateString('tr-TR').replace(/\./g,'-')}.html`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
 
   // Ücretsiz gösterilen biyobelirteçler (ilk 4)
   const FREE_KEYS = ["glucose","albumin","creatinine","crp"];
@@ -3040,17 +1938,10 @@ function ResultView({ result, aiText, aiLoading, onReset, onSave, user }) {
           </button>
         )}
         {saved && <div style={{padding:"9px 18px",borderRadius:9,background:"rgba(0,201,167,0.08)",color:"#00C9A7",fontSize:13,fontWeight:600}}>✓ Kaydedildi</div>}
-        <button onClick={downloadPDFBlob}
-          style={{padding:"9px 18px",borderRadius:9,border:"1px solid rgba(255,183,77,0.3)",background:"rgba(255,183,77,0.08)",color:"#FFB74D",fontSize:13,fontWeight:600,cursor:"pointer",transition:"all 0.2s"}}
-          onMouseEnter={e=>e.currentTarget.style.background="rgba(255,183,77,0.15)"}
-          onMouseLeave={e=>e.currentTarget.style.background="rgba(255,183,77,0.08)"}>
-          📄 Raporu İndir
-        </button>
       </div>
 
-      {/* ROW 1: Biyolojik Yaş + İlaç Uyarısı */}
-      <div className="by-result-top" style={{display:"grid",gridTemplateColumns:meds.length>0?"1fr 1fr":"1fr",gap:16,marginBottom:16}}>
-        {/* Biyolojik Yaş Kutusu */}
+      {/* Skor — her zaman görünür */}
+      <div className="by-result-top" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
         <div style={{background:"linear-gradient(135deg,rgba(0,201,167,0.15),rgba(0,128,255,0.1))",border:"1px solid rgba(0,201,167,0.28)",borderRadius:18,padding:32,textAlign:"center",position:"relative",overflow:"hidden"}}>
           <div style={{position:"absolute",inset:0,background:"radial-gradient(circle at 50% 0%, rgba(0,201,167,0.1), transparent 60%)"}} />
           <div style={{position:"relative",zIndex:1}}>
@@ -3063,68 +1954,40 @@ function ResultView({ result, aiText, aiLoading, onReset, onSave, user }) {
               border:`1px solid ${result.diff<=-3?"rgba(0,201,167,0.4)":result.diff<=3?"rgba(255,183,77,0.4)":"rgba(244,67,54,0.4)"}`}}>
               {result.diff>0?`+${result.diff}`:result.diff} yıl &nbsp; {result.diff<=-3?"🏆 Gençsiniz!":result.diff<=3?"👍 Normal":"⚠️ Dikkat"}
             </div>
-            <div style={{marginTop:14,padding:"8px 14px",borderRadius:8,background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.07)"}}>
-              <div style={{fontSize:10,color:"rgba(255,255,255,0.35)",lineHeight:1.7}}>
-                💡 PhenoAge, 1999–2006 ABD popülasyonu (NHANES) baz alınarak geliştirilmiştir.
-                Türk popülasyonunda ortalama <strong style={{color:"rgba(255,255,255,0.55)"}}>+3–5 yıl fark beklenmektedir</strong>.
-                Bu skor başlangıç noktanızdır — düşürülebilir.
-              </div>
-            </div>
           </div>
         </div>
 
-        {/* İlaç Uyarısı — sadece ilaç seçildiyse */}
-        {meds.length>0 && (
-          <div style={{background:"rgba(255,183,77,0.06)",border:"1px solid rgba(255,183,77,0.2)",borderRadius:18,padding:"20px 22px",display:"flex",flexDirection:"column",justifyContent:"flex-start",gap:8}}>
-            <div style={{display:"flex",alignItems:"center",gap:8}}>
-              <span style={{fontSize:20}}>💊</span>
-              <div style={{fontSize:14,fontWeight:700,color:"#FFB74D"}}>İlaç etkisi dikkate alındı</div>
-            </div>
-            <div style={{fontSize:12,color:"rgba(255,255,255,0.5)",lineHeight:1.8}}>
-              Kullandığınız ilaçlar:
-            </div>
-            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-              {meds.map(m=>(
-                <span key={m} style={{fontSize:11,padding:"3px 9px",borderRadius:5,background:"rgba(255,183,77,0.12)",color:"#FFB74D",border:"1px solid rgba(255,183,77,0.25)",fontWeight:600}}>
-                  {({retinoid:"Retinoid/Roakutan",statin:"Statin",steroid:"Kortikosteroid",betabloker:"Beta Bloker",metformin:"Metformin",nsaid:"NSAID",antipsikotik:"Antipsikotik",kemoterapik:"Kemoterapi",tiroid:"Tiroid ilacı",dogumdenetim:"Oral Kontraseptif",aceiArb:"Tansiyon ilacı",antibiyotik:"Antibiyotik",omega3:"Omega-3",dVitamin:"D Vitamini",demir:"Demir takviyesi"}[m]||m)}
-                </span>
-              ))}
-            </div>
-            <div style={{fontSize:11,color:"rgba(255,255,255,0.35)",lineHeight:1.6}}>
-              AI yorumu bu durum göz önünde bulundurularak hazırlandı.
-            </div>
+        {/* AI Yorum — kilitli */}
+        <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:18,padding:24,position:"relative",overflow:"hidden"}}>
+          <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:14}}>
+            <div style={{width:26,height:26,borderRadius:6,background:"linear-gradient(135deg,#00C9A7,#0080FF)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13}}>✨</div>
+            <span style={{fontWeight:700,fontSize:14,color:"#fff"}}>AI Uzman Yorumu</span>
+            {!unlocked && <span style={{fontSize:9,color:"#FFB74D",background:"rgba(255,183,77,0.1)",padding:"2px 7px",borderRadius:4,fontWeight:700,border:"1px solid rgba(255,183,77,0.25)"}}>🔒 ÜCRETLİ</span>}
           </div>
-        )}
-      </div>
-
-      {/* ROW 2: AI Yorum — tam genişlik */}
-      <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:18,padding:24,position:"relative",overflow:"hidden",marginBottom:16}}>
-        <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:14}}>
-          <div style={{width:26,height:26,borderRadius:6,background:"linear-gradient(135deg,#00C9A7,#0080FF)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13}}>✨</div>
-          <span style={{fontWeight:700,fontSize:14,color:"#fff"}}>AI Uzman Yorumu</span>
-          {!unlocked && <span style={{fontSize:9,color:"#FFB74D",background:"rgba(255,183,77,0.1)",padding:"2px 7px",borderRadius:4,fontWeight:700,border:"1px solid rgba(255,183,77,0.25)"}}>🔒 ÜCRETLİ</span>}
-        </div>
-        {unlocked ? (
-          aiLoading
-            ? <div style={{display:"flex",flexDirection:"column",gap:7}}>
-                {[100,80,90,65].map((w,i)=><div key={i} style={{height:12,width:`${w}%`,background:"rgba(255,255,255,0.05)",borderRadius:4,animation:`shimmer 1.5s ${i*0.1}s infinite alternate`}} />)}
+          {unlocked ? (
+            aiLoading
+              ? <div style={{display:"flex",flexDirection:"column",gap:7}}>
+                  {[100,80,90,65].map((w,i)=><div key={i} style={{height:12,width:`${w}%`,background:"rgba(255,255,255,0.05)",borderRadius:4,animation:`shimmer 1.5s ${i*0.1}s infinite alternate`}} />)}
+                </div>
+              : <p style={{fontSize:13,color:"rgba(255,255,255,0.65)",lineHeight:1.8,margin:0}}>{aiText}</p>
+          ) : (
+            <div style={{position:"relative"}}>
+              {/* Bulanık önizleme */}
+              <p style={{fontSize:13,color:"rgba(255,255,255,0.65)",lineHeight:1.8,margin:"0 0 12px",filter:"blur(4px)",userSelect:"none",pointerEvents:"none"}}>
+                {aiText || "Glukoz değeriniz normal sınırlar içinde görünmekte ancak CRP seviyeniz hafif yüksek. Karaciğer fonksiyonlarınız iyi durumda. Lenfosit oranınızı artırmak için düzenli egzersiz öneririm. RDW değerinize dikkat ediniz."}
+              </p>
+              {/* Kilit overlay */}
+              <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:"linear-gradient(0deg,rgba(10,31,28,0.95) 0%,rgba(10,31,28,0.7) 60%,transparent 100%)",borderRadius:8}}>
+                <div style={{fontSize:28,marginBottom:8}}>🔒</div>
+                <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:4}}>Tam yorumu görmek için</div>
+                <button onClick={()=>setShowPayment(true)}
+                  style={{padding:"8px 20px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#00C9A7,#0080FF)",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",marginTop:4}}>
+                  Raporu Aç — 299 TL
+                </button>
               </div>
-            : <p style={{fontSize:13,color:"rgba(255,255,255,0.65)",lineHeight:1.8,margin:0}}>{aiText}</p>
-        ) : (
-          <div style={{position:"relative"}}>
-            <p style={{fontSize:13,color:"rgba(255,255,255,0.65)",lineHeight:1.8,margin:"0 0 12px",filter:"blur(4px)",userSelect:"none",pointerEvents:"none"}}>
-              {aiText || "Glukoz değeriniz normal sınırlar içinde görünmekte ancak CRP seviyeniz hafif yüksek. Karaciğer fonksiyonlarınız iyi durumda. Lenfosit oranınızı artırmak için düzenli egzersiz öneririm. RDW değerinize dikkat ediniz."}
-            </p>
-            <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:"linear-gradient(0deg,rgba(10,31,28,0.95) 0%,rgba(10,31,28,0.7) 60%,transparent 100%)",borderRadius:8}}>
-              <div style={{fontSize:28,marginBottom:8}}>🔒</div>
-              <div style={{fontSize:13,fontWeight:700,color:"#fff",marginBottom:4}}>Tam yorumu görmek için</div>
-              <button onClick={()=>setShowPayment(true)}
-                style={{padding:"8px 20px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#00C9A7,#0080FF)",color:"#fff",fontWeight:700,fontSize:13,cursor:"pointer",marginTop:4}}>
-                Raporu Aç — 299 TL
-              </button>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Değer Tablosu — ücretsiz kısım açık, geri kilitli */}
@@ -3211,10 +2074,6 @@ function ResultView({ result, aiText, aiLoading, onReset, onSave, user }) {
         )}
       </div>
 
-      {/* Aksiyon Planı */}
-      <PopulasyonGrafigi result={result} />
-      <AksiyonPlani result={result} />
-
       {/* Ana CTA */}
       {!unlocked && (
         <div style={{background:"linear-gradient(135deg,rgba(0,201,167,0.12),rgba(0,128,255,0.08))",border:"1px solid rgba(0,201,167,0.25)",borderRadius:16,padding:"28px 32px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:20,flexWrap:"wrap",marginBottom:12}}>
@@ -3240,8 +2099,8 @@ function ResultView({ result, aiText, aiLoading, onReset, onSave, user }) {
 
       <div style={{display:"flex",gap:10,justifyContent:"center",flexWrap:"wrap"}}>
         <button onClick={onReset} style={{padding:"10px 22px",borderRadius:9,border:"1px solid rgba(255,255,255,0.07)",background:"none",color:"rgba(255,255,255,0.38)",fontSize:13,cursor:"pointer",transition:"all 0.2s"}}
-          onMouseEnter={e=>{e.currentTarget.style.borderColor="rgba(0,201,167,0.4)";e.currentTarget.style.color="rgba(255,255,255,0.7)";}}
-          onMouseLeave={e=>{e.currentTarget.style.borderColor="rgba(255,255,255,0.07)";e.currentTarget.style.color="rgba(255,255,255,0.38)";}}>
+          onMouseEnter={e=>{e.currentTarget.style.borderColor="rgba(0,201,167,0.1)";e.currentTarget.style.color="rgba(0,201,167,0.1)";}}
+          onMouseLeave={e=>{e.currentTarget.style.borderColor="rgba(0,201,167,0.06)";e.currentTarget.style.color="rgba(0,201,167,0.1)";}}>
           🔄 Yeni Analiz Yap
         </button>
       </div>
@@ -3263,8 +2122,6 @@ function Panel({ setPage, user, onSaveAnalysis }) {
   const [pdfStatus,  setPdfStatus]= useState("idle");
   const [pdfName,    setPdfName]  = useState("");
   const [extracted,  setExtracted]= useState(null);
-  const [meds,       setMeds]      = useState([]);      // kullanılan ilaç kategorileri
-  const [medsStep,   setMedsStep]  = useState(true);    // true = ilaç sorusu göster
   const resultRef   = useRef(null);
   const fileInputRef= useRef(null);
 
@@ -3277,11 +2134,11 @@ function Panel({ setPage, user, onSaveAnalysis }) {
     const bio = calculateBioAge(numV);
     if (!bio) { showAlert("Hesaplama hatası — zorunlu değerleri kontrol edin."); return; }
     const diff = parseFloat((bio-numV.age).toFixed(1));
-    const res  = {bioAge:bio, diff, chronoAge:numV.age, vals:numV, meds};
+    const res  = {bioAge:bio, diff, chronoAge:numV.age, vals:numV};
     setResult(res); setStep("result");
     setTimeout(()=>resultRef.current?.scrollIntoView({behavior:"smooth"}),150);
     setAiLoading(true);
-    try { setAiText(await fetchAI(numV,bio,numV.age,meds)); }
+    try { setAiText(await fetchAI(numV,bio,numV.age)); }
     catch { setAiText("AI yorumu şu an alınamıyor."); }
     finally { setAiLoading(false); }
   };
@@ -3334,26 +2191,12 @@ function Panel({ setPage, user, onSaveAnalysis }) {
   };
 
   const reset = () => {
-    setStep("form"); setResult(null); setAiText(""); setVals({}); setActiveG("kişisel"); setMeds([]); setMedsStep(true);
+    setStep("form"); setResult(null); setAiText(""); setVals({}); setActiveG("kişisel");
     setAlertMsg(""); setPdfStatus("idle"); setPdfName(""); setExtracted(null);
     window.scrollTo({top:0,behavior:"smooth"});
   };
 
-  const handleSave = async (r) => {
-    const token = localStorage.getItem("sb_token");
-    if (token && user) {
-      try {
-        await sb.saveAnalysis(token, {
-          user_id: user.id,
-          bio_age: r.bioAge,
-          chrono_age: r.chronoAge,
-          diff: r.diff,
-          vals: r.vals,
-          meds: r.meds || [],
-          ai_text: aiText || ""
-        });
-      } catch(e) { console.error("Supabase save:", e); }
-    }
+  const handleSave = (r) => {
     if(onSaveAnalysis) onSaveAnalysis({...r, date: new Date().toLocaleDateString("tr-TR")});
   };
 
@@ -3380,67 +2223,8 @@ function Panel({ setPage, user, onSaveAnalysis }) {
               <p style={{color:"rgba(255,255,255,0.38)",fontSize:13}}>PDF yükleyin veya değerleri kendiniz girin</p>
             </div>
 
-            {/* İlaç Sorusu */}
-            {medsStep && (
-              <div style={{maxWidth:600,margin:"0 auto 28px",background:"rgba(255,183,77,0.06)",border:"1px solid rgba(255,183,77,0.2)",borderRadius:14,padding:24}}>
-                <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
-                  <span style={{fontSize:22}}>💊</span>
-                  <div>
-                    <div style={{fontSize:15,fontWeight:700,color:"#fff"}}>İlaç veya takviye kullanıyor musunuz?</div>
-                    <div style={{fontSize:12,color:"rgba(255,255,255,0.45)",marginTop:2}}>Bazı ilaçlar kan değerlerini etkiler — doğru yorum için önemli</div>
-                  </div>
-                </div>
-
-                <div style={{display:"flex",flexWrap:"wrap",gap:8,marginBottom:16}}>
-                  {[
-                    {id:"retinoid",      label:"Retinoid / Roakutan",              effect:"Trigliserid ve karaciğer enzimlerini (ALT/ALP) belirgin yükseltir"},
-                    {id:"statin",        label:"Statin (Lipitor, Crestor vb.)",    effect:"LDL/kolesterolü düşürür, karaciğer enzimlerini etkileyebilir"},
-                    {id:"steroid",       label:"Kortikosteroid (Prednizon vb.)",   effect:"Glukozu yükseltir, albumini düşürür, WBC'yi artırır"},
-                    {id:"betabloker",    label:"Beta Bloker (Beloc vb.)",          effect:"Trigliseridi yükseltir, HDL'yi düşürebilir"},
-                    {id:"metformin",     label:"Metformin / Diyabet ilacı",        effect:"Glukozu düşürür, uzun kullanımda B12'yi etkiler"},
-                    {id:"nsaid",         label:"NSAID / Ağrı kesici (sürekli)",    effect:"CRP'yi maskeler, kreatinin ve böbrek değerlerini etkiler"},
-                    {id:"antipsikotik",  label:"Antipsikotik (Risperdal vb.)",     effect:"Glukoz ve trigliseridi yükseltir, metabolik sendrom riski"},
-                    {id:"kemoterapik",   label:"Kemoterapi / İmmünosupresif",      effect:"WBC ve lenfositi düşürür, albumin etkiler"},
-                    {id:"tiroid",        label:"Tiroid ilacı (Levotiron vb.)",     effect:"Kolesterol, kalp hızı ve metabolizmayı etkiler"},
-                    {id:"dogumdenetim",  label:"Oral Kontraseptif / Hormon",       effect:"Trigliserid ve CRP'yi yükseltir, glukoz toleransını etkiler"},
-                    {id:"aceiArb",       label:"Tansiyon ilacı (ACE/ARB)",         effect:"Kreatinin ve potasyum değerlerini etkiler"},
-                    {id:"antibiyotik",   label:"Son 2 haftada Antibiyotik",        effect:"WBC ve CRP değerlerini geçici etkiler"},
-                    {id:"omega3",        label:"Omega-3 / Balık yağı takviyesi",   effect:"Trigliseridi olumlu etkiler, düşürür"},
-                    {id:"dVitamin",      label:"D Vitamini takviyesi",             effect:"D vitamini eksikliği tedavisinde metabolizmayı etkiler"},
-                    {id:"demir",         label:"Demir takviyesi",                  effect:"RDW ve hematoloji değerlerini etkiler"},
-                  ].map(m=>{
-                    const sel = meds.includes(m.id);
-                    return (
-                      <button key={m.id} onClick={()=>setMeds(prev=>sel?prev.filter(x=>x!==m.id):[...prev,m.id])}
-                        title={m.effect}
-                        style={{padding:"7px 13px",borderRadius:8,border:`1px solid ${sel?"rgba(255,183,77,0.6)":"rgba(255,255,255,0.12)"}`,
-                          background:sel?"rgba(255,183,77,0.15)":"rgba(255,255,255,0.04)",
-                          color:sel?"#FFB74D":"rgba(255,255,255,0.6)",fontSize:12,fontWeight:sel?700:400,
-                          cursor:"pointer",transition:"all 0.15s",display:"flex",alignItems:"center",gap:5}}>
-                        {sel && <span style={{fontSize:10}}>✓</span>}
-                        {m.label}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {meds.length>0 && (
-                  <div style={{background:"rgba(255,183,77,0.08)",borderRadius:8,padding:"10px 14px",marginBottom:12,fontSize:12,color:"#FFB74D",lineHeight:1.6}}>
-                    ⚠️ Seçilen ilaçların kan değerlerine etkisi AI yorumunda dikkate alınacak.
-                  </div>
-                )}
-
-                <button onClick={()=>setMedsStep(false)}
-                  style={{width:"100%",padding:"11px",borderRadius:9,border:"none",
-                    background:"linear-gradient(135deg,#00C9A7,#0080FF)",
-                    color:"#fff",fontWeight:700,fontSize:14,cursor:"pointer"}}>
-                  {meds.length>0 ? `${meds.length} ilaç seçildi — Devam Et →` : "İlaç Kullanmıyorum — Devam Et →"}
-                </button>
-              </div>
-            )}
-
-            {/* Tab ve Form — ilaç sorusu geçildikten sonra göster */}
-            {!medsStep && <div style={{display:"flex",gap:0,marginBottom:28,background:"rgba(255,255,255,0.04)",borderRadius:12,padding:4,maxWidth:400,margin:"0 auto 28px"}}>
+            {/* Tab */}
+            <div style={{display:"flex",gap:0,marginBottom:28,background:"rgba(255,255,255,0.04)",borderRadius:12,padding:4,maxWidth:400,margin:"0 auto 28px"}}>
               {[["quick","⚡ Hızlı (PDF)"],["manual","✏️ Manuel Giriş"]].map(([t,l])=>(
                 <button key={t} onClick={()=>setTab(t)}
                   style={{flex:1,padding:"10px 16px",borderRadius:9,border:"none",cursor:"pointer",fontSize:13,fontWeight:600,transition:"all 0.2s",
@@ -3449,10 +2233,10 @@ function Panel({ setPage, user, onSaveAnalysis }) {
                   {l}
                 </button>
               ))}
-            </div>}
+            </div>
 
             {/* PDF tab */}
-            {!medsStep && tab==="quick" && (
+            {tab==="quick" && (
               <div style={{maxWidth:600,margin:"0 auto"}}>
                 <div
                   onClick={()=>fileInputRef.current?.click()}
@@ -3518,7 +2302,7 @@ function Panel({ setPage, user, onSaveAnalysis }) {
             )}
 
             {/* Manuel tab */}
-            {!medsStep && tab==="manual" && (
+            {tab==="manual" && (
               <>
                 <div style={{background:"rgba(255,255,255,0.04)",borderRadius:99,height:4,marginBottom:24,overflow:"hidden"}}>
                   <div style={{height:"100%",width:`${progress}%`,background:"linear-gradient(90deg,#00C9A7,#0080FF)",borderRadius:99,transition:"width 0.5s ease"}} />
@@ -3652,35 +2436,12 @@ function Footer({ setPage, onContactOpen }) {
 
 // ── App ───────────────────────────────────────────────────────────────────────
 export default function App() {
-  useEffect(() => {
-    (function(c,l,a,r,i,t,y){
-      c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
-      t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
-      y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
-    })(window, document, "clarity", "script", "vz9l000a7e");
-  }, []);
-
   const [page,      setPage]    = useState("home");
   const [showAuth,  setShowAuth]= useState(null);  // null | "login" | "register"
   const { user, register, loginWithPass, logout } = useAuth();
   const [analyses,       setAnalyses]      = useState([]);
   const [pendingAnalyze, setPendingAnalyze] = useState(false);
   const [showContact,    setShowContact]    = useState(false);
-  const [activePost,     setActivePost]     = useState(null);
-  const [resetToken,     setResetToken]     = useState(null);
-
-  // URL'de reset token var mı kontrol et
-  useEffect(() => {
-    const hash = window.location.hash;
-    if (hash.includes("type=recovery") && hash.includes("access_token=")) {
-      const params = new URLSearchParams(hash.substring(1));
-      const token = params.get("access_token");
-      if (token) {
-        setResetToken(token);
-        window.history.replaceState(null, "", window.location.pathname);
-      }
-    }
-  }, []);
 
   const handleLogin = (u) => {
     setShowAuth(null);
@@ -3688,27 +2449,7 @@ export default function App() {
     if (pendingAnalyze) { setPage("analyze"); window.scrollTo({top:0,behavior:"smooth"}); }
   };
   const handleLogout= () => { logout(); setPage("home"); };
-  const saveAnalysis = (r) => { setAnalyses(prev=>[r,...prev]); };
-
-  // Supabase analiz geçmişini yükle
-  useEffect(() => {
-    if (!user) return;
-    const token = localStorage.getItem("sb_token");
-    if (!token) return;
-    sb.getAnalyses(token, user.id).then(data => {
-      if (Array.isArray(data) && data.length > 0) {
-        const mapped = data.map(a => ({
-          id: a.id,
-          date: new Date(a.created_at).toLocaleDateString("tr-TR"),
-          bioAge: a.bio_age,
-          chronoAge: a.chrono_age,
-          diff: a.diff,
-          vals: a.vals,
-        }));
-        setAnalyses(mapped);
-      }
-    }).catch(e => console.error("Supabase load:", e));
-  }, [user]);
+  const saveAnalysis= (r) => { setAnalyses(prev=>[r,...prev]); };
 
   // Analiz başlatmak için giriş zorunlu
   const goAnalyze = () => {
@@ -3790,7 +2531,6 @@ export default function App() {
         }
       `}</style>
 
-      {resetToken && <ResetPasswordModal accessToken={resetToken} onClose={()=>setResetToken(null)} />}
       {showContact && <ContactModal onClose={()=>setShowContact(false)} />}
 
       {showAuth && (
@@ -3804,7 +2544,6 @@ export default function App() {
           <Hero setPage={setPage} goAnalyze={goAnalyze} />
           <How />
           <Features />
-          <PhenoAgeNedir />
           <ProfSection />
           <Testimonials />
           <Pricing setPage={setPage} goAnalyze={goAnalyze} />
@@ -3824,15 +2563,6 @@ export default function App() {
         </>
       )}
 
-      {page==="sss" && (
-        <SSSPage setPage={setPage} />
-      )}
-      {page==="blog" && (
-        <BlogPage setPage={setPage} setActivePost={setActivePost} />
-      )}
-      {page==="blogpost" && (
-        <BlogPostPage post={activePost} setPage={setPage} />
-      )}
       {page==="analyze" && (
         <Panel setPage={setPage} user={user} onSaveAnalysis={saveAnalysis} />
       )}
