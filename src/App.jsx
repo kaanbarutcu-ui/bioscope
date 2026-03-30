@@ -1270,10 +1270,10 @@ function How() {
   const rafRef = useRef(null);
 
   const STEPS = [
-    {badge:"ADIM 01",title:"Kan tahlil raporunuzu yukleyin",desc:"PDF yukleyin ya da degerleri kendiniz girin. Tum birimler otomatik donusturulur.",details:["PDF otomatik okunur","Manuel giris desteklenir","Birim donusumu otomatik"],color:"#00C9A7"},
-    {badge:"ADIM 02",title:"AI degerleri analiz eder",desc:"9 kritik biyobelirtec taranir. Her biri optimal araliklarla karsilastirilir.",details:["Glukoz, HbA1c, CRP...","Albumin, Kreatinin, MCV...","WBC, Lenfosit, RDW"],color:"#0080FF"},
-    {badge:"ADIM 03",title:"PhenoAge hesaplanir",desc:"Levine 2018 algoritmasi biyolojik yasinizi hesaplar. Kronolojik yasla kiyaslanir.",details:["Bilimsel algoritma","Populasyon karsilastirmasi","Sistem bazli skor"],color:"#00C9A7"},
-    {badge:"ADIM 04",title:"Kisisel rapor ve AI yorumu",desc:"Uzman AI yorumu, aksiyon plani ve PDF raporunuz hazir.",details:["AI uzman degerlendirmesi","Kisisel aksiyon plani","PDF rapor indirme"],color:"#0080FF"}
+    {badge:"ADIM 01",title:"Kan tahlil raporunuzu yükleyin",desc:"PDF yükleyin ya da değerleri kendiniz girin. Tüm birimler otomatik dönüştürülür.",details:["PDF otomatik okunur","Manuel giriş desteklenir","Birim dönüşümü otomatik"],color:"#00C9A7"},
+    {badge:"ADIM 02",title:"AI değerleri analiz eder",desc:"9 kritik biyobelirteç taranır. Her biri optimal aralıklarla karşılaştırılır.",details:["Glukoz, HbA1c, CRP...","Albümin, Kreatinin, MCV...","WBC, Lenfosit, RDW"],color:"#0080FF"},
+    {badge:"ADIM 03",title:"PhenoAge hesaplanır",desc:"Levine 2018 algoritması biyolojik yaşınızı hesaplar. Kronolojik yaşla kıyaslanır.",details:["Bilimsel algoritma","Popülasyon karşılaştırması","Sistem bazlı skor"],color:"#00C9A7"},
+    {badge:"ADIM 04",title:"Kişisel rapor ve AI yorumu",desc:"Uzman AI yorumu, aksiyon planı ve PDF raporunuz hazır.",details:["AI uzman değerlendirmesi","Kişisel aksiyon planı","PDF rapor indirme"],color:"#0080FF"}
   ];
 
   const goStep = (s) => {
@@ -1328,8 +1328,8 @@ function How() {
         ctx.beginPath();ctx.roundRect(px+x,py+y,w,5,2);ctx.fillStyle=y<55?"rgba(0,201,167,0.35)":"rgba(255,255,255,0.07)";ctx.fill();
       });
       ctx.beginPath();ctx.roundRect(px+12,py+ph-32,38,20,4);ctx.fillStyle=TEAL;ctx.fill();
-      ctx.fillStyle="#04100E";ctx.font="bold 9px sans-serif";ctx.textAlign="center";ctx.fillText("PDF",px+31,py+ph-17);
-      ctx.fillStyle="rgba(255,255,255,0.3)";ctx.font="13px sans-serif";ctx.textAlign="center";ctx.fillText("Tahlil PDF dosyanizi yukleyin",cx,cy+ph/2+44);
+      ctx.fillStyle="#04100E";ctx.font="bold 11px sans-serif";ctx.textAlign="center";ctx.fillText("PDF",px+31,py+ph-17);
+      ctx.fillStyle="rgba(255,255,255,0.55)";ctx.font="15px sans-serif";ctx.textAlign="center";ctx.fillText("Tahlil PDF dosyan\u0131z\u0131 y\u00fckleyin",cx,cy+ph/2+48);
     }
 
     function scene1(t) {
@@ -1349,8 +1349,8 @@ function How() {
         ctx.strokeStyle=m.ok?`rgba(0,201,167,${alpha*0.4})`:`rgba(239,83,80,${alpha*0.5})`;ctx.lineWidth=1;ctx.stroke();
         if(alpha>0.3){
           ctx.beginPath();ctx.arc(x+12,y+13,4,0,Math.PI*2);ctx.fillStyle=m.ok?`rgba(0,201,167,${alpha})`:`rgba(239,83,80,${alpha})`;ctx.fill();
-          ctx.fillStyle=`rgba(255,255,255,${alpha*0.45})`;ctx.font="10px sans-serif";ctx.textAlign="left";ctx.fillText(m.k,x+22,y+16);
-          ctx.fillStyle=m.ok?`rgba(0,201,167,${alpha})`:`rgba(239,83,80,${alpha})`;ctx.font="bold 16px Georgia";ctx.fillText(m.v,x+10,y+44);
+          ctx.fillStyle=`rgba(255,255,255,${alpha*0.6})`;ctx.font="12px sans-serif";ctx.textAlign="left";ctx.fillText(m.k,x+22,y+17);
+          ctx.fillStyle=m.ok?`rgba(0,201,167,${alpha})`:`rgba(239,83,80,${alpha})`;ctx.font="bold 18px Georgia";ctx.fillText(m.v,x+10,y+46);
         }
       });
     }
@@ -1364,11 +1364,11 @@ function How() {
       const ag=ctx.createLinearGradient(cx-maxR,cy-10,cx+maxR,cy-10);ag.addColorStop(0,TEAL);ag.addColorStop(1,BLUE);
       ctx.beginPath();ctx.arc(cx,cy-10,maxR-10,-Math.PI/2,-Math.PI/2+Math.PI*2*progress);ctx.strokeStyle=ag;ctx.lineWidth=10;ctx.lineCap="round";ctx.stroke();
       ctx.fillStyle="#fff";ctx.font=`bold ${Math.min(W*0.14,62)}px Georgia`;ctx.textAlign="center";ctx.fillText((bioAge*progress).toFixed(1),cx,cy+10);
-      ctx.fillStyle="rgba(255,255,255,0.38)";ctx.font="11px sans-serif";ctx.fillText("BIYOLOJIK YASINIZ",cx,cy-10-maxR*0.55);
+      ctx.fillStyle="rgba(255,255,255,0.55)";ctx.font="13px sans-serif";ctx.fillText("B\u0130YOLOJ\u0130K YA\u015eINIZ",cx,cy-10-maxR*0.55);
       if(progress>0.7){
         const bA=(progress-0.7)/0.3;
-        ctx.beginPath();ctx.roundRect(cx-64,cy+maxR*0.3,128,28,14);ctx.fillStyle=`rgba(0,201,167,${bA*0.15})`;ctx.fill();ctx.strokeStyle=`rgba(0,201,167,${bA*0.4})`;ctx.lineWidth=1;ctx.stroke();
-        ctx.fillStyle=`rgba(0,201,167,${bA})`;ctx.font="bold 12px sans-serif";ctx.fillText(`-${(chronoAge-bioAge).toFixed(1)} yil - Mukemmel`,cx,cy+maxR*0.3+18);
+        ctx.beginPath();ctx.roundRect(cx-72,cy+maxR*0.3,144,30,14);ctx.fillStyle=`rgba(0,201,167,${bA*0.15})`;ctx.fill();ctx.strokeStyle=`rgba(0,201,167,${bA*0.4})`;ctx.lineWidth=1;ctx.stroke();
+        ctx.fillStyle=`rgba(0,201,167,${bA})`;ctx.font="bold 14px sans-serif";ctx.fillText(`-${(chronoAge-bioAge).toFixed(1)} y\u0131l \u2014 M\u00fckemmel`,cx,cy+maxR*0.3+20);
       }
       ctx.lineCap="butt";
     }
@@ -1376,21 +1376,21 @@ function How() {
     function scene3(t) {
       ctx.fillStyle=BG;ctx.fillRect(0,0,W,H);
       const cx=W/2,cy=H/2;
-      const systems=[{n:"Metabolik",s:88,c:TEAL},{n:"Karaciger",s:91,c:TEAL},{n:"Bobrek",s:72,c:"rgba(255,183,77,0.9)"},{n:"Inflamasyon",s:55,c:"rgba(239,83,80,0.9)"},{n:"Hematoloji",s:82,c:TEAL}];
-      const barW=W*0.62,barH=7,barGap=36,startY=cy-systems.length*barGap/2+10,startX=cx-barW/2;
+      const systems=[{n:"Metabolik",s:88,c:TEAL},{n:"Karaci\u011fer",s:91,c:TEAL},{n:"B\u00f6brek",s:72,c:"rgba(255,183,77,0.9)"},{n:"\u0130nflamasyon",s:55,c:"rgba(239,83,80,0.9)"},{n:"Hematoloji",s:82,c:TEAL}];
+      const barW=W*0.62,barH=8,barGap=40,startY=cy-systems.length*barGap/2+10,startX=cx-barW/2;
       systems.forEach((sys,i)=>{
         const y=startY+i*barGap,prog=Math.min(1,Math.max(0,(t-i*12)/40));
-        ctx.fillStyle="rgba(255,255,255,0.4)";ctx.font="11px sans-serif";ctx.textAlign="left";ctx.fillText(sys.n,startX,y-5);
+        ctx.fillStyle="rgba(255,255,255,0.6)";ctx.font="13px sans-serif";ctx.textAlign="left";ctx.fillText(sys.n,startX,y-5);
         ctx.beginPath();ctx.roundRect(startX,y,barW,barH,4);ctx.fillStyle="rgba(255,255,255,0.06)";ctx.fill();
         ctx.beginPath();ctx.roundRect(startX,y,barW*(sys.s/100)*prog,barH,4);ctx.fillStyle=sys.c;ctx.fill();
-        if(prog>0.5){ctx.fillStyle=sys.c;ctx.font="bold 11px sans-serif";ctx.textAlign="right";ctx.fillText(Math.round(sys.s*prog),startX+barW+26,y+7);}
+        if(prog>0.5){ctx.fillStyle=sys.c;ctx.font="bold 13px sans-serif";ctx.textAlign="right";ctx.fillText(Math.round(sys.s*prog),startX+barW+28,y+8);}
       });
       const boxY=startY+systems.length*barGap+22;
       if(t>60){
         const bA=Math.min(1,(t-60)/20);
-        ctx.beginPath();ctx.roundRect(startX,boxY,barW+26,40,8);ctx.fillStyle=`rgba(0,201,167,${bA*0.08})`;ctx.fill();ctx.strokeStyle=`rgba(0,201,167,${bA*0.25})`;ctx.lineWidth=1;ctx.stroke();
-        ctx.fillStyle=`rgba(0,201,167,${bA})`;ctx.font="bold 11px sans-serif";ctx.textAlign="left";ctx.fillText("AI Uzman Yorumu hazir",startX+12,boxY+15);
-        ctx.fillStyle=`rgba(255,255,255,${bA*0.3})`;ctx.font="10px sans-serif";ctx.fillText("Metabolik ve hematoloji mukemmel - CRP dikkat",startX+12,boxY+30);
+        ctx.beginPath();ctx.roundRect(startX,boxY,barW+26,44,8);ctx.fillStyle=`rgba(0,201,167,${bA*0.08})`;ctx.fill();ctx.strokeStyle=`rgba(0,201,167,${bA*0.25})`;ctx.lineWidth=1;ctx.stroke();
+        ctx.fillStyle=`rgba(0,201,167,${bA})`;ctx.font="bold 13px sans-serif";ctx.textAlign="left";ctx.fillText("AI Uzman Yorumu haz\u0131r \u2713",startX+12,boxY+16);
+        ctx.fillStyle=`rgba(255,255,255,${bA*0.45})`;ctx.font="11px sans-serif";ctx.fillText("Metabolik ve hematoloji m\u00fckemmel \u2014 CRP dikkat",startX+12,boxY+33);
       }
     }
 
